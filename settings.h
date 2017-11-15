@@ -30,19 +30,19 @@ const int LED_BUILTIN=2;  //Onboard LED Pin
 
 //Geiger
 /* pin that is attached to interrupt 12 = ESP32 GIO12 */
-byte interruptPin = 12; //##############!!Fix this!!
+byte interruptPin = 25; //#GPIO25
 
 //DHT22
-#define DHT_PIN D5  //##############!!Fix this!!
+#define DHT_PIN 26  //#GPIO26
 #define DHT_VERSION DHT22
 
 //temp
 // *** GPIO pin number for DS18B20
-const int DS_PIN = 14; //##############!!Fix this!!
+const int DS_PIN = 27; //#GPIO27
 
 //MH-Z19
-#define MH_Z19_RX D7 //##############!!Fix this!!
-#define MH_Z19_TX D6 //##############!!Fix this!!
+#define MH_Z19_RX 16 //#GPIO16
+#define MH_Z19_TX 17 //#GPIO17
 
 
 
