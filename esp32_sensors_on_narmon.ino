@@ -191,7 +191,6 @@ unsigned long currentMillis = millis();
    // --- BME280
    bme.readSensor();      //получили данные с датчика
    delay(10);
-     // отправка на сервер
    bmeGotTemp();
    delay(10);
    bmeGotHumidity();
@@ -200,12 +199,14 @@ unsigned long currentMillis = millis();
    delay(10);
    //--- DS
    dsGotTemp();
+   delay(10);
    //--- DHT22
-
-
- }
-
-
+   dhtGotTemp();
+   delay(10);
+   dhtGotHumidity();
+   //-- MH
+   mhGotPpm();
+  }
 }
 
 
@@ -328,7 +329,7 @@ void dhtGotHumidity() {
 }
 
 
-//temp
+//temp-DS
 void dsGotTemp() {
      //
     float  temp = DS_get_temp();
