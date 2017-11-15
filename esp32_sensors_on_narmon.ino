@@ -28,7 +28,7 @@ float humidity = 0.0;
 
 //Geiger
 #define LOG_PERIOD 600000  //Logging period in milliseconds, recommended value 15000-60000.
-#define MAX_PERIOD 600000  //Maximum logging period without modifying this sketch
+#define MAX_PERIOD 600000  //Maximum logging period without modifying this sketch 60000s=1m
 
 unsigned long counts;     //variable for GM Tube events
 float cpm;        //variable for CPM
@@ -38,9 +38,17 @@ float MSVh;
 float MR;
 
 //DHT22
-#include <DHT.h> // https://github.com/adafruit/DHT-sensor-library
+// - Adafruit Unified Sensor Library: https://github.com/adafruit/Adafruit_Sensor
+// - DHT Sensor Library: https://github.com/adafruit/DHT-sensor-library
+
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <DHT_U.h>
 DHT dht(DHT_PIN, DHT_VERSION); //define temperature and humidity sensor
+
 //temp
+#include "ds18b20.h" //https://github.com/feelfreelinux/ds18b20
+
 
 //MH-Z19
 SoftwareSerial co2Serial(MH_Z19_RX, MH_Z19_TX); // define MH-Z19
@@ -120,8 +128,38 @@ cpm = 0;
 multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
 attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
 //
+//temperature
+DS_init(DS_PIN);
 
+//DHT22
+// Initialize device.
+  dht.begin();
+  Serial.println("DHTxx Unified Sensor Example");
+  // Print temperature sensor details.
+  sensor_t sensor;
+  dht.temperature().getSensor(&sensor);
+  Serial.println("------------------------------------");
+  Serial.println("Temperature");
+  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
+  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
+  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
+  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" *C");
+  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" *C");
+  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" *C");
+  Serial.println("------------------------------------");
+  // Print humidity sensor details.
+  dht.humidity().getSensor(&sensor);
+  Serial.println("------------------------------------");
+  Serial.println("Humidity");
+  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
+  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
+  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
+  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println("%");
+  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println("%");
+  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println("%");
+  Serial.println("------------------------------------");
 
+//MH-Z19
 
 Delay(300); // задержка на разогрев MH-Z19
 }
@@ -150,16 +188,19 @@ unsigned long currentMillis = millis();
    // отравили данные на сервер...
    doPublish("gg-MR0", String(MR, 1));
    //-----
-   // BME280
+   // --- BME280
    bme.readSensor();      //получили данные с датчика
    delay(10);
-   // отправка на сервер
+     // отправка на сервер
    bmeGotTemp();
    delay(10);
    bmeGotHumidity();
    delay(10);
    bmeGotPressure();
    delay(10);
+   //--- DS
+   dsGotTemp();
+   //--- DHT22
 
 
  }
@@ -256,8 +297,46 @@ void bmeGotPressure() {
 }
 
 //DHT22
+void dhtGotTemp() {
+     //
+     sensors_event_t event;
+     dht.temperature().getEvent(&event);
+     if (isnan(event.temperature)) {
+       Serial.println("Error reading DHT temperature!");
+     }
+     else {
+       Serial.print("DHT temperature: ");
+       Serial.print(event.temperature);
+       Serial.println(" *C");
+       doPublish("dht-t0", String(event.temperature, 1));
+     }
+}
+
+void dhtGotHumidity() {
+     //
+     sensors_event_t event;
+     dht.humidity().getEvent(&event);
+     if (isnan(event.relative_humidity)) {
+       Serial.println("Error reading humidity!");
+     }
+     else {
+       Serial.print("DHT humidity: ");
+       Serial.print(event.relative_humidity);
+       Serial.println("%");
+       doPublish("dht-h0", String(event.relative_humidity, 1));
+     }
+}
+
 
 //temp
+void dsGotTemp() {
+     //
+    float  temp = DS_get_temp();
+    //Serial.print(temp); Serial.print("*C  \t");
+    Serial.printf("DS  temp=%0.1f\n", temp);
+    doPublish("ds-t0", String(temp, 1));
+}
+
 
 //MH-Z19
 int readCO2()
