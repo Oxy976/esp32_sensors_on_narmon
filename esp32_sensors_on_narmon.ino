@@ -204,6 +204,7 @@ unsigned long currentMillis = millis();
    dhtGotTemp();
    delay(10);
    dhtGotHumidity();
+   delay(10);
    //-- MH
    mhGotPpm();
   }
