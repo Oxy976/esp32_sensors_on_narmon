@@ -27,8 +27,8 @@ float temp = 0.0;
 float humidity = 0.0;
 
 //Geiger
-#define LOG_PERIOD 30000  //Logging period in milliseconds, recommended value 15000-60000.
-#define MAX_PERIOD 60000  //Maximum logging period without modifying this sketch
+#define LOG_PERIOD 600000  //Logging period in milliseconds, recommended value 15000-60000.
+#define MAX_PERIOD 600000  //Maximum logging period without modifying this sketch
 
 unsigned long counts;     //variable for GM Tube events
 float cpm;        //variable for CPM
@@ -135,7 +135,7 @@ unsigned long currentMillis = millis();
  if(currentMillis - previousMillis > LOG_PERIOD){
    previousMillis = currentMillis;
    // --geiger--
-   cpm = counts * multiplier;
+   cpm = counts * multiplier/10; //время учета увеличил в 10 раз, тут уменьшил
    MSVh = cpm/151;
    MR = MSVh * 100;
 
