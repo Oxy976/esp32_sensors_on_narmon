@@ -40,14 +40,13 @@ float MR;
 //DHT22
 // - Adafruit Unified Sensor Library: https://github.com/adafruit/Adafruit_Sensor
 // - DHT Sensor Library: https://github.com/adafruit/DHT-sensor-library
-
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include <DHT_U.h>
-DHT dht(DHT_PIN, DHT_VERSION); //define temperature and humidity sensor
+DHT dht(DHTPIN, DHTTYPE); //define temperature and humidity sensor
 
-//temp
-#include "ds18b20.h" //https://github.com/feelfreelinux/ds18b20
+//temp -DS
+#include "ds18b20.h" // https://github.com/feelfreelinux/ds18b20
 
 
 //MH-Z19
@@ -128,13 +127,13 @@ cpm = 0;
 multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
 attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
 //
-//temperature
-DS_init(DS_PIN);
+//temperature DS
+ds18b20_init(DS_PIN);
 
 //DHT22
 // Initialize device.
   dht.begin();
-  Serial.println("DHTxx Unified Sensor Example");
+  Serial.println("DHTxx Unified Sensor: ");
   // Print temperature sensor details.
   sensor_t sensor;
   dht.temperature().getSensor(&sensor);
@@ -301,31 +300,39 @@ void bmeGotPressure() {
 //DHT22
 void dhtGotTemp() {
      //
-     sensors_event_t event;
-     dht.temperature().getEvent(&event);
-     if (isnan(event.temperature)) {
+//     sensors_event_t event;
+//     dht.temperature().getEvent(&event);
+     float t = dht.readTemperature();
+//     if (isnan(event.temperature)) {
+     if (isnan(t)) {
        Serial.println("Error reading DHT temperature!");
      }
      else {
        Serial.print("DHT temperature: ");
-       Serial.print(event.temperature);
+//       Serial.print(event.temperature);
+       Serial.print(t);
        Serial.println(" *C");
-       doPublish("dht-t0", String(event.temperature, 1));
+//       doPublish("dht-t0", String(event.temperature, 1));
+       doPublish("dht-t0", String(t, 1));
      }
 }
 
 void dhtGotHumidity() {
      //
-     sensors_event_t event;
-     dht.humidity().getEvent(&event);
-     if (isnan(event.relative_humidity)) {
+//     sensors_event_t event;
+//     dht.humidity().getEvent(&event);
+    float h = dht.readHumidity();
+//     if (isnan(event.relative_humidity)) {
+    if (isnan(h)) {
        Serial.println("Error reading humidity!");
      }
      else {
        Serial.print("DHT humidity: ");
-       Serial.print(event.relative_humidity);
+//       Serial.print(event.relative_humidity);
+       Serial.print(h);
        Serial.println("%");
-       doPublish("dht-h0", String(event.relative_humidity, 1));
+//       doPublish("dht-h0", String(event.relative_humidity, 1));
+       doPublish("dht-h0", String(h, 1));
      }
 }
 
@@ -333,7 +340,7 @@ void dhtGotHumidity() {
 //temp-DS
 void dsGotTemp() {
      //
-    float  temp = DS_get_temp();
+    float  temp = ds18b20_get_temp();
     //Serial.print(temp); Serial.print("*C  \t");
     Serial.printf("DS  temp=%0.1f\n", temp);
     doPublish("ds-t0", String(temp, 1));
@@ -385,18 +392,19 @@ void mhGotPpm() {
      //
     int  ppm = readCO2();
     if (ppm > 100 || ppm < 6000)
-  {
-    Serial.printf("MH-Z19 ppm=%d\n", ppm);
-    doPublish("mh-ppm0", String(ppm, 1));
-  }
-  else
-  {
-    Serial.println("MH-Z19 error ppm");
-  }
+    {
+      Serial.printf("MH-Z19 ppm=%d\n", ppm);
+      doPublish("mh-ppm0", String(ppm, 1));
+    } else  {
+      Serial.println("MH-Z19 error ppm");
+    }
 }
 
 
 //Geiger
+void tube_impulse(){       //subprocedure for capturing events from Geiger Kit
+  counts++;
+}
 // in loop
 
 

@@ -33,8 +33,12 @@ const int LED_BUILTIN=2;  //Onboard LED Pin
 byte interruptPin = 25; //#GPIO25
 
 //DHT22
-#define DHT_PIN 26  //#GPIO26
-#define DHT_VERSION DHT22
+// what digital pin we're connected to
+#define DHTPIN 26     //#GPIO26
+// Uncomment whatever type you're using!
+//#define DHTTYPE DHT11   // DHT 11
+#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+//#define DHTTYPE DHT21   // DHT 21 (AM2301)
 
 //temp
 // *** GPIO pin number for DS18B20
