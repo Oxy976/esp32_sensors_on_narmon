@@ -129,7 +129,8 @@ void setup()
 counts = 0;
 cpm = 0;
 multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
-attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
+pinMode(interruptPin, INPUT_PULLUP);
+attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, LOW); //define external interrupts
 //
 //temperature DS
 ds18b20_init(DS_PIN);
