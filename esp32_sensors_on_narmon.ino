@@ -3,6 +3,9 @@ transmiting data from wemos r32 (esp32) with sensors to narodmon.ru across mqtt
 */
 
 #include "settings.h"
+#include "esp_system.h"
+#include "soc/rtc.h" 
+
 
 #include <SPI.h>
 #include <WiFi.h>
@@ -20,48 +23,35 @@ WiFiUDP udp;
 #include <Wire.h>
 #include "cactus_io_BME280_I2C.h"
 // Create the BME280 object
-BME280_I2C bme;              // I2C using default 0x77
-// or BME280_I2C bme(0x76);  // I2C using address 0x76
+BME280_I2C bme;              //def
+// or BME280_I2C bme(BME_ADDR);  // I2C using address 
 float pressure = 0.0;
 float temp = 0.0;
 float humidity = 0.0;
 
 //Geiger
-#define LOG_PERIOD 600000  //Logging period in milliseconds, recommended value 15000-60000.
-#define MAX_PERIOD 600000  //Maximum logging period without modifying this sketch 60000s=1m
+#define LOG_PERIOD 600000  //Logging period in milliseconds, 600000=10m
+//#define MAX_PERIOD 600000  //Maximum logging period without modifying this sketch 60000s=1m 600000=10m
 
 unsigned long counts;     //variable for GM Tube events
-float cpm;        //variable for CPM
-unsigned long multiplier;  //variable for calculation CPM in this sketch
+float cpm = 0.0;        //variable for CPM
+//unsigned long multiplier;  //variable for calculation CPM in this sketch
 unsigned long previousMillis;  //variable for time measurement
-float MSVh;
-float MR;
+float MSVh = 0.0;
+float MRh = 0.0;
 
-//DHT22
-// - Adafruit Unified Sensor Library: https://github.com/adafruit/Adafruit_Sensor
-// - DHT Sensor Library: https://github.com/adafruit/DHT-sensor-library
-#include <Adafruit_Sensor.h>
-#include <DHT.h>
-#include <DHT_U.h>
-DHT dht(DHTPIN, DHTTYPE); //define temperature and humidity sensor
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
-//temp -DS
-#include "ds18b20.h" // https://github.com/feelfreelinux/ds18b20
-
-
-//MH-Z19
-SoftwareSerial co2Serial(MH_Z19_RX, MH_Z19_TX); // define MH-Z19
-
-/*
-//sleep
-#define GPIO_DEEP_SLEEP_DURATION     600  // sleep ... seconds and then wake up
-RTC_DATA_ATTR static time_t last;        // remember last boot in RTC Memory
-*/
+// INTERRUPT 
+void IRAM_ATTR tube_impulse(){       //subprocedure for capturing events from Geiger Kit
+  portENTER_CRITICAL_ISR(&mux);
+  counts++;
+  portEXIT_CRITICAL_ISR(&mux);
+  Serial.print("'");                //4TEST! 
+}
 
 // OTA
-#include <ArduinoOTA.h>
-
-
+//#include <ArduinoOTA.h>
 
 WiFiClient wifiClient;
 PubSubClient client(server, 1883, wifiClient);
@@ -74,7 +64,6 @@ void setup()
   // Start the ethernet client, open up serial port for debugging
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
-//   digitalWrite(LED_BUILTIN, HIGH);
    setup_wifi();
 
 
@@ -84,87 +73,19 @@ void setup()
     while (1);
   }
   Serial.println("BME280 sensor activated");
-  bme.setTempCal(-1);  //correct data, need? TEST this!!!
+  bme.setTempCal(-1);  //correct data, need? TEST this!!!   TEST *************
 
-//
-
-/* поспать не удастся  - считаем постоянно тики с рентгена
-//=====
-    //sleep - wakeup
-    struct timeval now;
-    Serial.println("wakeup: start ESP32 loop \n");
-    gettimeofday(&now, NULL);  //получить приблизительное время от системы. для индикации сколько спали.
-*/
      GetNTP();    //получили время, записано в ntp_time, в seril отобразилось. можно использовать где-нибудь еще
-/*
-     bme.readSensor();      //получили данные с датчика
-     delay(1000);
-     bme.readSensor();      //получили данные с датчика
-     delay(10);
-     // отправка на сервер
-     gotTemp();
-     delay(10);
-     gotHumidity();
-     delay(10);
-     gotPressure();
-     delay(10);
-
-    // close mqtt-connection
-    client.disconnect();
-    // .. and go sleep
-//    Serial.println("deep sleep (%lds since last reset, %lds since last boot)\n",now.tv_sec,now.tv_sec-last);
-    Serial.print("last=");  Serial.println(last);
-    Serial.print("go deep sleep (%lds since last reset, %lds since last boot)\n");     Serial.print(now.tv_sec); Serial.print("; "); Serial.println(now.tv_sec-last);
-    last = now.tv_sec;
-    Serial.print("last=");  Serial.println(last);
- //спать...
-   esp_sleep_enable_timer_wakeup(1000000LL * GPIO_DEEP_SLEEP_DURATION);
-   Serial.println("Setup ESP32 to sleep for every " + String(GPIO_DEEP_SLEEP_DURATION) + " Seconds");
-   Serial.println("Going to sleep now");
-   digitalWrite(LED_BUILTIN, LOW);
-   esp_deep_sleep_start();
-*/
 
 //Geiger
-counts = 0;
-cpm = 0;
-multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
-pinMode(interruptPin, INPUT_PULLUP);
-attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, LOW); //define external interrupts (FALLING - high to low)
-//
-//temperature DS
-ds18b20_init(DS_PIN);
+  pinMode(interruptPin, INPUT);
+  Serial.println("init geiger"); 
+  counts = 0;
+  cpm = 0;
+//  multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
+  attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
 
-//DHT22
-// Initialize device.
-  dht.begin();
-  Serial.println("DHTxx Unified Sensor: ");
-  // Print temperature sensor details.
-  sensor_t sensor;
-  dht.temperature().getSensor(&sensor);
-  Serial.println("------------------------------------");
-  Serial.println("Temperature");
-  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
-  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
-  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
-  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println(" *C");
-  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println(" *C");
-  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" *C");
-  Serial.println("------------------------------------");
-  // Print humidity sensor details.
-  dht.humidity().getSensor(&sensor);
-  Serial.println("------------------------------------");
-  Serial.println("Humidity");
-  Serial.print  ("Sensor:       "); Serial.println(sensor.name);
-  Serial.print  ("Driver Ver:   "); Serial.println(sensor.version);
-  Serial.print  ("Unique ID:    "); Serial.println(sensor.sensor_id);
-  Serial.print  ("Max Value:    "); Serial.print(sensor.max_value); Serial.println("%");
-  Serial.print  ("Min Value:    "); Serial.print(sensor.min_value); Serial.println("%");
-  Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println("%");
-  Serial.println("------------------------------------");
 
-//MH-Z19
-Delay(300); // задержка на разогрев MH-Z19
 
 //======ArduinoOTA
 
@@ -181,8 +102,8 @@ Delay(300); // задержка на разогрев MH-Z19
   // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
   // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
 
-  ArduinoOTA
-    .onStart([]() {
+ /* 
+    ArduinoOTA.onStart([]() {
       String type;
       if (ArduinoOTA.getCommand() == U_FLASH)
         type = "sketch";
@@ -191,14 +112,14 @@ Delay(300); // задержка на разогрев MH-Z19
 
       // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
       Serial.println("Start updating " + type);
-    })
-    .onEnd([]() {
+    });
+    ArduinoOTA.onEnd([]() {
       Serial.println("\nEnd");
-    })
-    .onProgress([](unsigned int progress, unsigned int total) {
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
       Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-    })
-    .onError([](ota_error_t error) {
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
       Serial.printf("Error[%u]: ", error);
       if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
       else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
@@ -213,6 +134,7 @@ Delay(300); // задержка на разогрев MH-Z19
   Serial.print("OTA IP address: ");
   Serial.println(WiFi.localIP());
 // ==============================
+*/
 }
 
 
@@ -220,27 +142,31 @@ Delay(300); // задержка на разогрев MH-Z19
 void loop()
 {
 //ArduinoOTA
-ArduinoOTA.handle();
+//ArduinoOTA.handle();
 
 // считаем тики, как вышло время - собираем данные с других датчиков и отправляем...
 unsigned long currentMillis = millis();
  if(currentMillis - previousMillis > LOG_PERIOD){
    previousMillis = currentMillis;
    // --geiger--
-   cpm = counts * multiplier/10; //время учета увеличил в 10 раз, тут уменьшил
+   //время учета увеличил в 10 раз, тут уменьшил
+   cpm = counts/10;
+//   cpm = counts * multiplier/10;
    MSVh = cpm/151;
-   MR = MSVh * 100;
+   MRh = cpm*1,96078;
 
-//    Serial.print(cpm);
    Serial.print("CPM="); Serial.println(cpm);
    Serial.print("MSVh="); Serial.println(MSVh);
-   Serial.print("MR="); Serial.println(MR);
-//    Serial.printf("%s\n", );(" CPM=%d",cpm);
-//    Serial.printf("%s\n", );(" MSVh=%d MSVh",MSVh);
-//    Serial.printf("%s\n", );(" MR=%d MR",MR);
+   Serial.print("MRh="); Serial.println(MRh);
+
    counts = 0;
+
    // отравили данные на сервер...
-   doPublish("gg-MR0", String(MR, 1));
+   // пока отправка вкл. led
+   digitalWrite(LED_BUILTIN, HIGH);
+
+   // send uRgh from geiger
+   doPublish("R0", String(MRh, 1));
    //-----
    // --- BME280
    bme.readSensor();      //получили данные с датчика
@@ -251,16 +177,9 @@ unsigned long currentMillis = millis();
    delay(10);
    bmeGotPressure();
    delay(10);
-   //--- DS
-   dsGotTemp();
-   delay(10);
-   //--- DHT22
-   dhtGotTemp();
-   delay(10);
-   dhtGotHumidity();
-   delay(10);
-   //-- MH
-   mhGotPpm();
+
+     digitalWrite(LED_BUILTIN, LOW);
+
   }
 }
 
@@ -304,7 +223,7 @@ void doPublish(String id, String value) {
   if (!!!client.connected()) {
      Serial.print("Reconnecting client to "); Serial.println(server);
      while (!!!client.connect(clientId, authMethod, token, conntopic,0,0,"online")) {
-        Serial.print(".");
+        Serial.print("#");
         delay(500);
      }
      Serial.print("connected with: "); Serial.print(clientId); Serial.print(authMethod); Serial.print(token);
@@ -323,6 +242,14 @@ void doPublish(String id, String value) {
     Serial.println("Publish failed");
   }
 }
+
+/*
+// ############# TEST!!! ### 4DEL!!!! 
+void doPublish(String id, String value) {
+  Serial.print("ID: "); Serial.println(id);
+  Serial.print("Val: "); Serial.println(value);
+}
+*/
 //==
 
 //BME280
@@ -333,7 +260,7 @@ void bmeGotTemp() {
     float  temp = bme.getTemperature_C();
     //Serial.print(temp); Serial.print("*C  \t");
     Serial.printf("BME280  temp=%0.1f\n", temp);
-    doPublish("bme-t0", String(temp, 1));
+    doPublish("t0", String(temp, 1));
 }
 
 void bmeGotHumidity() {
@@ -341,7 +268,7 @@ void bmeGotHumidity() {
     float  humidity = bme.getHumidity();
     //Serial.print(humidity); Serial.print("H  \t");
     Serial.printf("BME280  humidity=%0.1f\n", humidity);
-    doPublish("bme-h0", String(humidity, 1));
+    doPublish("h0", String(humidity, 1));
 }
 
 void bmeGotPressure() {
@@ -349,119 +276,12 @@ void bmeGotPressure() {
     float  pressure = (bme.getPressure_MB() * 0.7500638);
     //Serial.print(pressure); Serial.print("p  \t");
     Serial.printf("BME280 pressure=%0.1f\n", pressure);
-    doPublish("bme-p0", String(pressure, 1));
-}
-
-//DHT22
-void dhtGotTemp() {
-     //
-//     sensors_event_t event;
-//     dht.temperature().getEvent(&event);
-     float t = dht.readTemperature();
-//     if (isnan(event.temperature)) {
-     if (isnan(t)) {
-       Serial.println("Error reading DHT temperature!");
-     }
-     else {
-       Serial.print("DHT temperature: ");
-//       Serial.print(event.temperature);
-       Serial.print(t);
-       Serial.println(" *C");
-//       doPublish("dht-t0", String(event.temperature, 1));
-       doPublish("dht-t0", String(t, 1));
-     }
-}
-
-void dhtGotHumidity() {
-     //
-//     sensors_event_t event;
-//     dht.humidity().getEvent(&event);
-    float h = dht.readHumidity();
-//     if (isnan(event.relative_humidity)) {
-    if (isnan(h)) {
-       Serial.println("Error reading humidity!");
-     }
-     else {
-       Serial.print("DHT humidity: ");
-//       Serial.print(event.relative_humidity);
-       Serial.print(h);
-       Serial.println("%");
-//       doPublish("dht-h0", String(event.relative_humidity, 1));
-       doPublish("dht-h0", String(h, 1));
-     }
-}
-
-
-//temp-DS
-void dsGotTemp() {
-     //
-    float  temp = ds18b20_get_temp();
-    //Serial.print(temp); Serial.print("*C  \t");
-    Serial.printf("DS  temp=%0.1f\n", temp);
-    doPublish("ds-t0", String(temp, 1));
-}
-
-
-//MH-Z19
-int readCO2()
-{
-
-  byte cmd[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
-  // command to ask for data
-  byte response[9]; // for answer
-
-  co2Serial.write(cmd, 9); //request PPM CO2
-
-  // The serial stream can get out of sync. The response starts with 0xff, try to resync.
-  while (co2Serial.available() > 0 && (unsigned char)co2Serial.peek() != 0xFF) {
-    co2Serial.read();
-  }
-
-  memset(response, 0, 9);
-  co2Serial.readBytes(response, 9);
-
-  if (response[1] != 0x86)
-  {
-    Serial.println("Invalid response from co2 sensor!");
-    return -1;
-  }
-
-  byte crc = 0;
-  for (int i = 1; i < 8; i++) {
-    crc += response[i];
-  }
-  crc = 255 - crc + 1;
-
-  if (response[8] == crc) {
-    int responseHigh = (int) response[2];
-    int responseLow = (int) response[3];
-    int ppm = (256 * responseHigh) + responseLow;
-    return ppm;
-  } else {
-    Serial.println("MH-Z19 CRC error!");
-    return -1;
-  }
-}
-
-void mhGotPpm() {
-     //
-    int  ppm = readCO2();
-    if (ppm > 100 || ppm < 6000)
-    {
-      Serial.printf("MH-Z19 ppm=%d\n", ppm);
-      doPublish("mh-ppm0", String(ppm, 1));
-    } else  {
-      Serial.println("MH-Z19 error ppm");
-    }
+    doPublish("p0", String(pressure, 1));
 }
 
 
 //Geiger
-void tube_impulse(){       //subprocedure for capturing events from Geiger Kit
-  counts++;
-}
-// in loop
-
+//---
 
 // ==== NTP===
 /**
