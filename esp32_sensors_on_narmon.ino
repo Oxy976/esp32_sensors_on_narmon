@@ -23,19 +23,17 @@ WiFiUDP udp;
 #include <Wire.h>
 #include "cactus_io_BME280_I2C.h"
 // Create the BME280 object
-BME280_I2C bme;              //def
+//BME280_I2C bme;              //def
 // or BME280_I2C bme(BME_ADDR);  // I2C using address 
+BME280_I2C bme(BME_ADDR);  // I2C using address 
+
 float pressure = 0.0;
 float temp = 0.0;
 float humidity = 0.0;
 
-//Geiger
-#define LOG_PERIOD 600000  //Logging period in milliseconds, 600000=10m
-//#define MAX_PERIOD 600000  //Maximum logging period without modifying this sketch 60000s=1m 600000=10m
-
+//***Geiger
 unsigned long counts;     //variable for GM Tube events
 float cpm = 0.0;        //variable for CPM
-//unsigned long multiplier;  //variable for calculation CPM in this sketch
 unsigned long previousMillis;  //variable for time measurement
 float MSVh = 0.0;
 float MRh = 0.0;
@@ -50,8 +48,13 @@ void IRAM_ATTR tube_impulse(){       //subprocedure for capturing events from Ge
   Serial.print("'");                //4TEST! 
 }
 
-// OTA
-//#include <ArduinoOTA.h>
+//***DHT
+//#include <Adafruit_Sensor.h>
+#include <DHT.h>
+//#include <DHT_U.h>
+
+//DHT_Unified dht(DHTPIN, DHTTYPE);
+DHT dht(DHTPIN, DHTTYPE); 
 
 WiFiClient wifiClient;
 PubSubClient client(server, 1883, wifiClient);
@@ -66,98 +69,54 @@ void setup()
   pinMode(LED_BUILTIN, OUTPUT);
    setup_wifi();
 
-
- // init sensor
+// NTP
+    GetNTP();    //получили время, записано в ntp_time, в seril отобразилось. можно использовать где-нибудь еще
+ // init sensors
+ //***BME
    if (!bme.begin()) {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
     while (1);
   }
   Serial.println("BME280 sensor activated");
-  bme.setTempCal(-1);  //correct data, need? TEST this!!!   TEST *************
+  bme.setTempCal(0);  //correcting data, need calibrate this!!!   *************
 
-     GetNTP();    //получили время, записано в ntp_time, в seril отобразилось. можно использовать где-нибудь еще
-
-//Geiger
+//***Geiger
   pinMode(interruptPin, INPUT);
   Serial.println("init geiger"); 
   counts = 0;
-  cpm = 0;
+  cpm = 0.0;
 //  multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
   attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
 
+//***DHT
+  // Initialize device.
+  dht.begin();
+  Serial.println("DHTxx Unified Sensor init");
 
-
-//======ArduinoOTA
-
-  // Port defaults to 3232
-  // ArduinoOTA.setPort(3232);
-
-  // Hostname defaults to esp3232-[MAC]
-  // ArduinoOTA.setHostname("myesp32");
-
-  // No authentication by default
-  // ArduinoOTA.setPassword("admin");
-
-  // Password can be set with it's md5 value as well
-  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
-  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
-
- /* 
-    ArduinoOTA.onStart([]() {
-      String type;
-      if (ArduinoOTA.getCommand() == U_FLASH)
-        type = "sketch";
-      else // U_SPIFFS
-        type = "filesystem";
-
-      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-      Serial.println("Start updating " + type);
-    });
-    ArduinoOTA.onEnd([]() {
-      Serial.println("\nEnd");
-    });
-    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-    });
-    ArduinoOTA.onError([](ota_error_t error) {
-      Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed");
-    });
-
-  ArduinoOTA.begin();
-
-  Serial.println("OTA Ready");
-  Serial.print("OTA IP address: ");
-  Serial.println(WiFi.localIP());
-// ==============================
-*/
 }
 
 
 
 void loop()
 {
-//ArduinoOTA
-//ArduinoOTA.handle();
 
 // считаем тики, как вышло время - собираем данные с других датчиков и отправляем...
 unsigned long currentMillis = millis();
  if(currentMillis - previousMillis > LOG_PERIOD){
    previousMillis = currentMillis;
    // --geiger--
-   //время учета увеличил в 10 раз, тут уменьшил
-   cpm = counts/10;
-//   cpm = counts * multiplier/10;
-   MSVh = cpm/151;
-   MRh = cpm*1,96078;
-
+   //calc per minutes
+   cpm = counts*(60000.0/LOG_PERIOD);
+   Serial.println();
+   Serial.print("counts="); Serial.println(counts);
    Serial.print("CPM="); Serial.println(cpm);
-   Serial.print("MSVh="); Serial.println(MSVh);
-   Serial.print("MRh="); Serial.println(MRh);
+   Serial.print("CPM_calc="); Serial.println(counts*(60000.0/LOG_PERIOD));
+
+   MSVh = cpm * CF;
+   MRh = cpm * CF * 100;  //100 рентген = 1 зиверт
+   
+   Serial.print("MSVhCF="); Serial.println(MSVh);
+   Serial.print("MRhCF="); Serial.println(MRh);
 
    counts = 0;
 
@@ -178,14 +137,19 @@ unsigned long currentMillis = millis();
    bmeGotPressure();
    delay(10);
 
+ //--- DHT22
+   dhtGotTemp();
+   delay(10);
+   dhtGotHumidity();
+   delay(10);
+
+   
      digitalWrite(LED_BUILTIN, LOW);
 
   }
 }
-
-
-
 // ================
+
 // ==WIFI ================
 void setup_wifi() {
 
@@ -219,12 +183,19 @@ void setup_wifi() {
 
 // ==MQTT ==публикация
 void doPublish(String id, String value) {
+ int count_reconnect = 0;
 // если не подключен, то подключаемся. Висит пока не подключится!!
   if (!!!client.connected()) {
      Serial.print("Reconnecting client to "); Serial.println(server);
      while (!!!client.connect(clientId, authMethod, token, conntopic,0,0,"online")) {
         Serial.print("#");
         delay(500);
+        count_reconnect++;
+        // больше 10 попыток - что-то не так... 
+        if (count_reconnect>10)  {
+           Serial.println("problem with connecting to server, restarting");
+           ESP.restart();
+         }
      }
      Serial.print("connected with: "); Serial.print(clientId); Serial.print(authMethod); Serial.print(token);
      Serial.println();
@@ -259,7 +230,7 @@ void bmeGotTemp() {
      //
     float  temp = bme.getTemperature_C();
     //Serial.print(temp); Serial.print("*C  \t");
-    Serial.printf("BME280  temp=%0.1f\n", temp);
+    Serial.printf("Temp BME280=%0.1f\n", temp, " *C");
     doPublish("t0", String(temp, 1));
 }
 
@@ -267,7 +238,7 @@ void bmeGotHumidity() {
      //
     float  humidity = bme.getHumidity();
     //Serial.print(humidity); Serial.print("H  \t");
-    Serial.printf("BME280  humidity=%0.1f\n", humidity);
+    Serial.printf("Humidity BME280=%0.1f\n", humidity, "%");
     doPublish("h0", String(humidity, 1));
 }
 
@@ -275,12 +246,47 @@ void bmeGotPressure() {
      //
     float  pressure = (bme.getPressure_MB() * 0.7500638);
     //Serial.print(pressure); Serial.print("p  \t");
-    Serial.printf("BME280 pressure=%0.1f\n", pressure);
+    Serial.printf("Pressure BME280 =%0.1f\n", pressure," mmHg");
     doPublish("p0", String(pressure, 1));
 }
 
+//DHT22
+void dhtGotTemp() {
+     //
+ //    sensors_event_t event;
+ //      dht.temperature().getEvent(&event);
+//     float t = event.temperature;
+  // Read temperature as Celsius (the default)
+      float t = dht.readTemperature(); 
+  //     if (isnan(event.temperature)) {
+     if (isnan(t)) {
+       Serial.println("Error reading DHT temperature!");
+     }
+     else {
+       Serial.printf("Temp DHT=%0.1f\n", t, " *C");
+//       doPublish("dht-t0", String(event.temperature, 1));
+       doPublish("t1", String(t, 1));
+     }
+}
 
+void dhtGotHumidity() {
+     //
+//     sensors_event_t event;
+//     dht.humidity().getEvent(&event);
+//    float h = event.relative_humidity;
+      float h = dht.readHumidity(); 
+  //     if (isnan(event.relative_humidity)) {
+    if (isnan(h)) {
+       Serial.println("Error reading humidity!");
+     }
+     else {
+       Serial.printf("Humidity DHT=%0.1f\n", h, "%");
+//       doPublish("dht-h0", String(event.relative_humidity, 1));
+       doPublish("h1", String(h, 1));
+     }
+}
 //Geiger
+//null
 //---
 
 // ==== NTP===
