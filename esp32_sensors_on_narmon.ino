@@ -67,6 +67,8 @@ void setup()
   // Start the ethernet client, open up serial port for debugging
   Serial.begin(115200);
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+
    setup_wifi();
 
 // NTP
