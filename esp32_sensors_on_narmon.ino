@@ -231,7 +231,9 @@ void bmeGotTemp() {
     float  temp = bme.getTemperature_C();
     //Serial.print(temp); Serial.print("*C  \t");
     Serial.printf("Temp BME280=%0.1f\n", temp, " *C");
-    doPublish("t0", String(temp, 1));
+    if (temp>-50 and temp<50 )  {
+      doPublish("t0", String(temp, 1));
+    }
 }
 
 void bmeGotHumidity() {
@@ -239,7 +241,9 @@ void bmeGotHumidity() {
     float  humidity = bme.getHumidity();
     //Serial.print(humidity); Serial.print("H  \t");
     Serial.printf("Humidity BME280=%0.1f\n", humidity, "%");
-    doPublish("h0", String(humidity, 1));
+    if (humidity>5 and humidity<99 )  {
+      doPublish("h0", String(humidity, 1));
+    }
 }
 
 void bmeGotPressure() {
@@ -247,7 +251,9 @@ void bmeGotPressure() {
     float  pressure = (bme.getPressure_MB() * 0.7500638);
     //Serial.print(pressure); Serial.print("p  \t");
     Serial.printf("Pressure BME280 =%0.1f\n", pressure," mmHg");
-    doPublish("p0", String(pressure, 1));
+    if (pressure>600 and pressure<900 )  {
+      doPublish("p0", String(pressure, 1));
+    }
 }
 
 //DHT22
@@ -265,7 +271,9 @@ void dhtGotTemp() {
      else {
        Serial.printf("Temp DHT=%0.1f\n", t, " *C");
 //       doPublish("dht-t0", String(event.temperature, 1));
-       doPublish("t1", String(t, 1));
+        if (t>-50 and t<50 )  {
+           doPublish("t1", String(t, 1));
+        }
      }
 }
 
@@ -282,7 +290,9 @@ void dhtGotHumidity() {
      else {
        Serial.printf("Humidity DHT=%0.1f\n", h, "%");
 //       doPublish("dht-h0", String(event.relative_humidity, 1));
-       doPublish("h1", String(h, 1));
+        if (h>5 and h<99 )  {
+          doPublish("h1", String(h, 1));
+        }
      }
 }
 //Geiger
