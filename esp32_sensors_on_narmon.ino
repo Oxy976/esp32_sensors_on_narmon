@@ -2,23 +2,29 @@
 transmiting data from wemos r32 (esp32) with sensors to narodmon.ru across mqtt
 */
 
+
 #include "settings.h"
+
 #include "esp_system.h"
 #include "soc/rtc.h" 
 
-
 #include <SPI.h>
+
 #include <WiFi.h>
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <Update.h>
+#include "time.h"
 
-
-#include <WiFiUdp.h>
-IPAddress timeServerIP;
-const int NTP_PACKET_SIZE = 48;
-byte packetBuffer[ NTP_PACKET_SIZE];
-unsigned long ntp_time = 0;
-WiFiUDP udp;
+#include "otg_web.h"
+WebServer wserver(80);
 
 #include <PubSubClient.h>
+WiFiClient wifiClient;
+PubSubClient client(server, 1883, wifiClient);
+
+
 
 #include <Wire.h>
 #include "cactus_io_BME280_I2C.h"
@@ -56,9 +62,6 @@ void IRAM_ATTR tube_impulse(){       //subprocedure for capturing events from Ge
 //DHT_Unified dht(DHTPIN, DHTTYPE);
 DHT dht(DHTPIN, DHTTYPE); 
 
-WiFiClient wifiClient;
-PubSubClient client(server, 1883, wifiClient);
-
 
 //============
 void setup()
@@ -70,9 +73,17 @@ void setup()
   digitalWrite(LED_BUILTIN, LOW);
 
    setup_wifi();
+   setup_OTGwserver();
+   
 
 // NTP
-    GetNTP();    //получили время, записано в ntp_time, в seril отобразилось. можно использовать где-нибудь еще
+  //init and get the time
+  long gmtOffset_sec = 0;
+  gmtOffset_sec=TIMEZONE*3600;
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServerName);
+  printLocalTime();
+
+  
  // init sensors
  //***BME
    if (!bme.begin()) {
@@ -101,6 +112,8 @@ void setup()
 
 void loop()
 {
+//web OTG
+ wserver.handleClient();
 
 // считаем тики, как вышло время - собираем данные с других датчиков и отправляем...
 unsigned long currentMillis = millis();
@@ -125,7 +138,8 @@ unsigned long currentMillis = millis();
    // отравили данные на сервер...
    // пока отправка вкл. led
    digitalWrite(LED_BUILTIN, HIGH);
-
+   printLocalTime();
+   
    // send uRgh from geiger
    doPublish("R0", String(MRh, 1));
    //-----
@@ -145,12 +159,12 @@ unsigned long currentMillis = millis();
    dhtGotHumidity();
    delay(10);
 
-   
-     digitalWrite(LED_BUILTIN, LOW);
-
+  // LED OFF
+   digitalWrite(LED_BUILTIN, LOW);
   }
 }
 // ================
+
 
 // ==WIFI ================
 void setup_wifi() {
@@ -162,17 +176,14 @@ void setup_wifi() {
   Serial.println(ssid);
 
   WiFi.begin(ssid, password);
-  int i = 0;
-  while (WiFi.status() != WL_CONNECTED && i < 50) {
+ 
+// если за 30*500 не подключился - перегрузить 
+  int wifiCounter = 0;
+  while (WiFi.status() != WL_CONNECTED) 
+  {
     delay(500);
-    i++;
-    Serial.print(".");
-  }
-  // если до сих пор нет подключения - перегрузить.
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi Connection failed, restart");
-    WiFi.disconnect();
-    ESP.restart();
+    Serial.print("#");
+    if (++wifiCounter > 30) ESP.restart();
   }
 
   randomSeed(micros());
@@ -181,7 +192,58 @@ void setup_wifi() {
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
+
+  /*use mdns for host name resolution  http://hostname.local  */
+  if (!MDNS.begin(hostname)) { 
+    Serial.println("Error setting up MDNS responder!");
+    while (1) {
+      delay(1000);
+    }
+  }
+  Serial.println("mDNS responder started");
 }
+
+void setup_OTGwserver() {
+  
+  /*return index page which is stored in serverIndex */
+  wserver.on("/", HTTP_GET, []() {
+    wserver.sendHeader("Connection", "close");
+    wserver.send(200, "text/html", loginIndex);
+  });
+  wserver.on("/serverIndex", HTTP_GET, []() {
+    wserver.sendHeader("Connection", "close");
+    wserver.send(200, "text/html", serverIndex);
+  });
+  /*handling uploading firmware file */
+  wserver.on("/update", HTTP_POST, []() {
+    wserver.sendHeader("Connection", "close");
+    wserver.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+    ESP.restart();
+  }, []() {
+    HTTPUpload& upload = wserver.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      /* flashing firmware to ESP*/
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) { //true to set the size to the current progress
+        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
+  wserver.begin();
+}
+
+ 
+
 
 // ==MQTT ==публикация
 void doPublish(String id, String value) {
@@ -302,73 +364,13 @@ void dhtGotHumidity() {
 //---
 
 // ==== NTP===
-/**
- * Посылаем и парсим запрос к NTP серверу
- */
-bool GetNTP(void) {
-  WiFi.hostByName(ntpServerName, timeServerIP);
-  sendNTPpacket(timeServerIP);
-  delay(1000);
-
-  int cb = udp.parsePacket();
-  if (!cb) {
-    Serial.println("No packet yet");
-    return false;
-  }
-  else {
-    Serial.print("packet received, length=");
-    Serial.println(cb);
-// Читаем пакет в буфер
-    udp.read(packetBuffer, NTP_PACKET_SIZE);
-// 4 байта начиная с 40-го сождержат таймстамп времени - число секунд
-// от 01.01.1900
-    unsigned long highWord = word(packetBuffer[40], packetBuffer[41]);
-    unsigned long lowWord = word(packetBuffer[42], packetBuffer[43]);
-// Конвертируем два слова в переменную long
-    unsigned long secsSince1900 = highWord << 16 | lowWord;
-// Конвертируем в UNIX-таймстамп (число секунд от 01.01.1970
-    const unsigned long seventyYears = 2208988800UL;
-    unsigned long epoch = secsSince1900 - seventyYears;
-// Делаем поправку на местную тайм-зону
-    ntp_time = epoch + TIMEZONE*3600;
-    Serial.print("Unix time = ");
-    Serial.println(ntp_time);
-// и в привычном виде:
-   uint16_t s = ( ntp_time )%60;
-   uint16_t m = ( ntp_time/60 )%60;
-   uint16_t h = ( ntp_time/3600 )%24;
-   Serial.print("Time: ");
-   Serial.print(h);
-   Serial.print(":");
-   Serial.print(m);
-   Serial.print(":");
-   Serial.println(s);
-   //---
-
-  }
-  return true;
-}
-
-/**
- * Посылаем запрос NTP серверу на заданный адрес
- */
-unsigned long sendNTPpacket(IPAddress& address)
+//print time to serial
+void printLocalTime()
 {
-  Serial.println("sending NTP packet...");
-// Очистка буфера в 0
-  memset(packetBuffer, 0, NTP_PACKET_SIZE);
-// Формируем строку зыпроса NTP сервера
-  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
-  packetBuffer[1] = 0;     // Stratum, or type of clock
-  packetBuffer[2] = 6;     // Polling Interval
-  packetBuffer[3] = 0xEC;  // Peer Clock Precision
-  // 8 bytes of zero for Root Delay & Root Dispersion
-  packetBuffer[12]  = 49;
-  packetBuffer[13]  = 0x4E;
-  packetBuffer[14]  = 49;
-  packetBuffer[15]  = 52;
-// Посылаем запрос на NTP сервер (123 порт)
-  udp.beginPacket(address, 123);
-  udp.write(packetBuffer, NTP_PACKET_SIZE);
-  udp.endPacket();
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
 }

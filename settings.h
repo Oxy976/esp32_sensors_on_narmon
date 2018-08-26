@@ -1,5 +1,6 @@
 // ==Network settings
 // --
+const char* hostname = "esp";
 const char* ssid = "xxx";
 const char* password = "xxx";
 // --
@@ -7,6 +8,7 @@ const char* password = "xxx";
 // Time settings
 const char* ntpServerName = "pool.ntp.org";
 const int TIMEZONE=3;
+const int   daylightOffset_sec = 0;
 
 //==narmon
 
