@@ -44,14 +44,25 @@ unsigned long previousMillis;  //variable for time measurement
 float MSVh = 0.0;
 float MRh = 0.0;
 
+//hw interrupt
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+// on timer interrupt
+hw_timer_t * timer = NULL;
+volatile SemaphoreHandle_t timerSemaphore;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 
-// INTERRUPT 
+// HW INTERRUPT service
 void IRAM_ATTR tube_impulse(){       //subprocedure for capturing events from Geiger Kit
   portENTER_CRITICAL_ISR(&mux);
   counts++;
   portEXIT_CRITICAL_ISR(&mux);
   Serial.print("'");                //4TEST! 
+}
+
+// timer interrupt service
+void IRAM_ATTR onTimer(){
+  // Give a semaphore that we can check in the loop
+  xSemaphoreGiveFromISR(timerSemaphore, NULL);
 }
 
 //***DHT
@@ -74,7 +85,24 @@ void setup()
 
    setup_wifi();
    setup_OTGwserver();
-   
+  
+ //--interrupt
+   // Create semaphore to inform us when the timer has fired
+  timerSemaphore = xSemaphoreCreateBinary();
+  // Use 1st timer of 4 (counted from zero).
+  // Set 80 divider for prescaler (see ESP32 Technical Reference Manual for more
+  // info).
+  timer = timerBegin(0, 80000, true);
+  // Attach onTimer function to our timer.
+  timerAttachInterrupt(timer, &onTimer, true);
+  // Set alarm to call onTimer function every second (value in milliseconds - 80 000 000Gz / 80000).
+  // Repeat the alarm (third parameter)
+ // timerAlarmWrite(timer, 1000, true);
+  timerAlarmWrite(timer, LOG_PERIOD, true);
+  // Start an alarm
+  timerAlarmEnable(timer);
+  //--
+  
 
 // NTP
   //init and get the time
@@ -115,11 +143,12 @@ void loop()
 //web OTG
  wserver.handleClient();
 
-// считаем тики, как вышло время - собираем данные с других датчиков и отправляем...
-unsigned long currentMillis = millis();
- if(currentMillis - previousMillis > LOG_PERIOD){
-   previousMillis = currentMillis;
-   // --geiger--
+ // If Timer has fired   
+ if (xSemaphoreTake(timerSemaphore, 0) == pdTRUE){
+ 
+// собираем данные с  датчиков и отправляем...
+
+  // --geiger--
    //calc per minutes
    cpm = counts*(60000.0/LOG_PERIOD);
    Serial.println();
@@ -204,7 +233,6 @@ void setup_wifi() {
 }
 
 void setup_OTGwserver() {
-  
   /*return index page which is stored in serverIndex */
   wserver.on("/", HTTP_GET, []() {
     wserver.sendHeader("Connection", "close");
