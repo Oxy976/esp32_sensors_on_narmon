@@ -92,12 +92,14 @@ void setup()
   // Use 1st timer of 4 (counted from zero).
   // Set 80 divider for prescaler (see ESP32 Technical Reference Manual for more
   // info).
-  timer = timerBegin(0, 80000, true);
+  timer = timerBegin(0, 8000, true);  //divider over 8000 is not worked correctly
   // Attach onTimer function to our timer.
   timerAttachInterrupt(timer, &onTimer, true);
-  // Set alarm to call onTimer function every second (value in milliseconds - 80 000 000Gz / 80000).
+  // Set alarm to call onTimer function every  second ( 80 000 000Gz / 8000 * 10000 ).
   // Repeat the alarm (third parameter)
- // timerAlarmWrite(timer, 1000, true);
+ // timerAlarmWrite(timer, 10000, true);
+  //100000 - 10s, 600000 - 60s,1m  6000000 - 10m  36000000 -60m,1h
+
   timerAlarmWrite(timer, LOG_PERIOD, true);
   // Start an alarm
   timerAlarmEnable(timer);
