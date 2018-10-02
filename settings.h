@@ -36,9 +36,8 @@ const int BME_ADDR=0x77; //I2C using  0x77 (default) or 0x76
 //***Geiger
 /* pin that is attached to interrupt 12 = ESP32 GIO12 */
 byte interruptPin = 12; 
-const int LOG_PERIOD=600000;  //Logging period in milliseconds, 600000=10m 900000=15m
-//const int LOG_PERIOD=60000;  //Logging period in milliseconds, 600000=10m
-  //J305?
+const int LOG_PERIOD=6000000;  //Logging period //100000 - 10s, 600000 - 60s,1m  6000000 - 10m  36000000 -60m,1h
+//conversion factor (CF) for tube J305?
 const float CF=0.0058; //different for different tubes. The conversion factor (CF) for the official tube J305? is 0.008120
 
 
