@@ -1,7 +1,13 @@
 #include <Arduino.h>
 #include <M5Stack.h>
+// https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 
+#include "utf8rus.h"
 
+#include "fonts/RobotoR12pt8b.h"
+#define F_RR12 &RobotoR12pt8b
+#include "fonts/RobotoR14pt8b.h"
+#define F_RR14 &RobotoR14pt8b
 #include "fonts/RobotoR16pt8b.h"
 #define F_RR16 &RobotoR16pt8b
 #include "fonts/RobotoR32pt8b.h"
@@ -18,29 +24,32 @@ void OutStrToScr( String stb1, String  stsr1, String  stsr2, String  stsd1, Stri
 {
   M5.Lcd.fillScreen(0);
 
-  M5.Lcd.drawRoundRect(1, 1, 212, 160, 7, 0x7bef);
-  M5.Lcd.drawRoundRect(213, 1, 106, 80, 7, 0x7bef);
-  M5.Lcd.drawRoundRect(213, 81, 106, 80, 7, 0x7bef);
-  M5.Lcd.drawRoundRect(1, 160, 106, 80, 7, 0x7bef);
-  M5.Lcd.drawRoundRect(107, 160, 106, 80, 7, 0x7bef);
-  M5.Lcd.drawRoundRect(213, 160, 106, 80, 7, 0x7bef);
+  M5.Lcd.drawRoundRect(1, 1, 212, 160, 7, TFT_DARKGREY);
+  M5.Lcd.drawRoundRect(213, 1, 106, 80, 7, TFT_DARKGREY);
+  M5.Lcd.drawRoundRect(213, 81, 106, 80, 7, TFT_DARKGREY);
+  M5.Lcd.drawRoundRect(1, 160, 106, 80, 7, TFT_DARKGREY);
+  M5.Lcd.drawRoundRect(107, 160, 106, 80, 7, TFT_DARKGREY);
+  M5.Lcd.drawRoundRect(213, 160, 106, 80, 7, TFT_DARKGREY);
 
   M5.Lcd.setTextSize(1);
   M5.Lcd.setTextDatum(MC_DATUM); //Middle centre
 
-  M5.Lcd.setTextColor(0xfbe4);
+  M5.Lcd.setTextColor(TFT_RED);
+ // M5.Lcd.setTextColor(0xfbe4);
   //  M5.Lcd.setTextColor(0xe8e4);
   M5.Lcd.setFont(F_RR32);                 // Select the font
 
   M5.Lcd.drawString(stb1, 106, 80, 1);// Print the test text in the custom font
 
   //  M5.Lcd.setTextColor(0xfbe4);
-  M5.Lcd.setTextColor(0xe8e4);
+  //M5.Lcd.setTextColor(0xe8e4);
+  M5.Lcd.setTextColor(TFT_MAGENTA);
   M5.Lcd.setFont(F_RR16);
   M5.Lcd.drawString(stsr1, 267, 40, 1);
   M5.Lcd.drawString(stsr2, 267, 120, 1);
 
-  M5.Lcd.setTextColor(0xff80);
+  //M5.Lcd.setTextColor(0xff80);
+  M5.Lcd.setTextColor(TFT_YELLOW);
   M5.Lcd.setFont(F_RR16);
   M5.Lcd.drawString(stsd1, 53, 200, 1);
   M5.Lcd.drawString(stsd2, 159, 200, 1);
@@ -110,18 +119,7 @@ void OutToScr( float b1, float  sr1, float  sr2, float  sd1, float  sd2, float  
 
 
 
-/* void ScreenOff( unsigned long time) // time for screenoff
-  {
-  if (micros() >= time and micros() < (time + 1000000))
-  {
-    for (int i = 255; i >= 0; i--)
-    {
-      M5.Lcd.setBrightness(i);
-      delay(10);
-    }
-    M5.Lcd.writecommand(ILI9341_DISPOFF);
-  }
-  } */
+
 void ScreenOff()
 {
   for (int i = 255; i >= 0; i--)
@@ -129,6 +127,7 @@ void ScreenOff()
     M5.Lcd.setBrightness(i);
     delay(10);
   }
+  M5.Lcd.fillScreen(TFT_BLACK);
   M5.Lcd.writecommand(ILI9341_DISPOFF);
 }
 
@@ -141,4 +140,51 @@ void ScreenOn()
     M5.Lcd.setBrightness(i);
     delay(2);
   }
+}
+
+
+void ShowTime(struct tm timeinfo) {
+  char ctme[20], cdte[20];
+  sprintf(ctme, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+  sprintf(cdte, "%02d-%02d-%4d", timeinfo.tm_mday, (timeinfo.tm_mon + 1), (timeinfo.tm_year + 1900));
+  String stme = ctme;
+  String sdte = cdte;
+  int wday = timeinfo.tm_wday;
+  String swday;
+  switch ( wday) {
+    case 0:
+      swday = "Воскресенье";
+      break;
+    case 1:
+      swday = "Понедельник";
+      break;
+    case 2:
+      swday = "Вторник";
+      break;
+    case 3:
+      swday = "Среда";
+      break;
+    case 4:
+      swday = "Четверг";
+      break;
+    case 5:
+      swday = "Пятница";
+      break;
+    case 6:
+      swday = "Суббота";
+      break;
+  }
+
+  //show screen with date-time
+  M5.Lcd.fillScreen(TFT_BLACK);
+  M5.Lcd.setTextDatum(MC_DATUM); //Middle centre
+  M5.Lcd.setTextColor(TFT_RED, TFT_BLACK);
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.drawString(stme, 160, 90, 7);  // 7 - digital font
+  M5.Lcd.setTextColor(TFT_GREEN, TFT_BLACK);
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.setFont(F_RR14);                 // Select the font
+  M5.Lcd.drawString(sdte, 160, 170, 1);
+  M5.Lcd.setFont(F_RR12);                 // Select the font
+  M5.Lcd.drawString(utf8rus(swday), 160, 210, 1);
 }
