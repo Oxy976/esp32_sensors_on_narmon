@@ -9,7 +9,8 @@ const char* password = "xxx";
 
 //wemos esp32
 // LED
-const int LED_BUILTIN = 2; //Onboard LED Pin
+const int LED_BUILTIN = 2; //Onboard LED Pin ***! change this for M5!
+
 // Time settings
 const char* ntpServerName = "pool.ntp.org";
 const int TIMEZONE=3;
@@ -35,7 +36,7 @@ char conntopic[] = TOPIC "status";
 
 //***BME280 - I2C using  0x77 (default) or 0x76
 const int BME_ext_ADDR=0x77; 
-const int BME_int_ADDR=0x76; //I2C using  0x77 (default) or 0x76
+const int BME_int_ADDR=0x76; 
 
 //***Geiger
 /* pin that is attached to interrupt 12 = ESP32 GIO12 */
