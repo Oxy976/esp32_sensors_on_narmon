@@ -37,13 +37,17 @@ PubSubClient client(server, 1883, wifiClient);
 #include <Wire.h>
 #include "cactus_io_BME280_I2C.h"
 // Create the BME280 object
-//BME280_I2C bme;              //def
-// or BME280_I2C bme(BME_ADDR);  // I2C using address
-BME280_I2C bme(BME_ADDR);  // I2C using address
+BME280_I2C bme_ext(BME_ext_ADDR);  // I2C using address
+BME280_I2C bme_int(BME_int_ADDR);  // I2C using address
+boolean bBME_ext=true;
+boolean bBME_int=true;
 
-float pressure = 0.0;
-float temp = 0.0;
-float humidity = 0.0;
+float bme_ext_pres = 0.0;
+float bme_ext_temp = 0.0;
+float bme_ext_humi = 0.0;
+float bme_int_pres = 0.0;
+float bme_int_temp = 0.0;
+float bme_int_humi = 0.0;
 
 //***Geiger
 unsigned long counts;     //variable for GM Tube events
@@ -219,90 +223,8 @@ void doPublish(String id, String value) {
   }
 }
 
-/*
-  // ############# TEST!!! ### 4DEL!!!!
-  void doPublish(String id, String value) {
-  Serial.print("ID: "); Serial.println(id);
-  Serial.print("Val: "); Serial.println(value);
-  }
-*/
-//==
 
-//BME280
-// получаем данные - gotXxxx и публикуем
 
-void bmeGotTemp() {
-  //
-  float  temp = bme.getTemperature_C();
-  //Serial.print(temp); Serial.print("*C  \t");
-  Serial.printf("Temp BME280=%0.1f\n", temp, " *C");
-  if (temp > -50 and temp < 50 )  {
-    doPublish("t0", String(temp, 1));
-  }
-}
-
-void bmeGotHumidity() {
-  //
-  float  humidity = bme.getHumidity();
-  //Serial.print(humidity); Serial.print("H  \t");
-  Serial.printf("Humidity BME280=%0.1f\n", humidity, "%");
-  if (humidity > 5 and humidity < 99 )  {
-    doPublish("h0", String(humidity, 1));
-  }
-}
-
-void bmeGotPressure() {
-  //
-  float  pressure = (bme.getPressure_MB() * 0.7500638);
-  //Serial.print(pressure); Serial.print("p  \t");
-  Serial.printf("Pressure BME280 =%0.1f\n", pressure, " mmHg");
-  if (pressure > 600 and pressure < 900 )  {
-    doPublish("p0", String(pressure, 1));
-  }
-}
-
-//DHT22
-void dhtGotTemp() {
-  //
-  //    sensors_event_t event;
-  //      dht.temperature().getEvent(&event);
-  //     float t = event.temperature;
-  // Read temperature as Celsius (the default)
-  float t = dht.readTemperature();
-  //     if (isnan(event.temperature)) {
-  if (isnan(t)) {
-    Serial.println("Error reading DHT temperature!");
-  }
-  else {
-    Serial.printf("Temp DHT=%0.1f\n", t, " *C");
-    //       doPublish("dht-t0", String(event.temperature, 1));
-    if (t > -50 and t < 50 )  {
-      doPublish("t1", String(t, 1));
-    }
-  }
-}
-
-void dhtGotHumidity() {
-  //
-  //     sensors_event_t event;
-  //     dht.humidity().getEvent(&event);
-  //    float h = event.relative_humidity;
-  float h = dht.readHumidity();
-  //     if (isnan(event.relative_humidity)) {
-  if (isnan(h)) {
-    Serial.println("Error reading humidity!");
-  }
-  else {
-    Serial.printf("Humidity DHT=%0.1f\n", h, "%");
-    //       doPublish("dht-h0", String(event.relative_humidity, 1));
-    if (h > 5 and h < 99 )  {
-      doPublish("h1", String(h, 1));
-    }
-  }
-}
-//Geiger
-//null
-//---
 
 
 
@@ -358,13 +280,21 @@ void setup()
 
   // init sensors
   //***BME
-  if (!bme.begin()) {
-    Serial.println("Could not find a valid BME280 sensor, check wiring!");
-    while (1);
+  if (!bme_ext.begin()) {
+    Serial.println("!!*** Could not find a valid BME280 ext sensor, check wiring! ***!! ");
+    bBME_ext=false;
   }
-  Serial.println("BME280 sensor activated");
-  bme.setTempCal(0);  //correcting data, need calibrate this!!!   *************
+  Serial.println("BME280 ext sensor activated");
+  bme_ext.setTempCal(0);  //correcting data, need calibrate this!!!   *************
 
+    if (!bme_int.begin()) {
+    Serial.println("!!*** Could not find a valid BME280 int sensor, check wiring!  ***!! ");
+    bBME_int=false;
+  }
+  Serial.println("BME280 int sensor activated");
+  bme_int.setTempCal(0);  //correcting data, need calibrate this!!!   *************
+
+  
   //***Geiger
   pinMode(interruptPin, INPUT);
   Serial.println("init geiger");
@@ -373,10 +303,6 @@ void setup()
   //  multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
   attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
 
-  //***DHT
-  // Initialize device.
-  dht.begin();
-  Serial.println("DHTxx Unified Sensor init");
 
   //distance
   //  pinMode(distPin, INPUT);
@@ -397,13 +323,33 @@ void setup()
     //    return;
   }
   delay(2000);
-  bme.readSensor();      //получили данные с датчика
-  Serial.printf("Temp=%0.1f\n",  bme.getTemperature_C());
-  Serial.printf("Hum=%0.1f\n",  bme.getHumidity());
-  Serial.printf("Press=%0.1f\n",  bme.getPressure_MB());
-
-  OutToScr( bme.getTemperature_C(), bme.getHumidity(), (bme.getPressure_MB() * 0.7500638), 88.8, 88.8, 888 );
-  OffScrTime = micros() + 2000000;
+   if bBME_ext {
+    bme_ext.readSensor();      //получили данные с датчика ext
+    delay(10);
+     bme_ext_temp = bme_ext.getTemperature_C();
+      Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
+     bmeGotHumidity();
+      bme_ext_humi = bme_ext.getHumidity();
+      Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
+    bmeGotPressure();
+      bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638);
+      Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
+    }
+    
+    if bBME_int {
+    bme_int.readSensor();      //получили данные с датчика int
+    delay(10);
+      bme_int_temp = bme_int.getTemperature_C();
+      Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
+    bmeGotHumidity();
+      bme_int_humi = bme_int.getHumidity();
+      Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
+    bmeGotPressure();
+      bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
+      Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
+    }  
+    OutToScr( bbme_ext_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , 0.0 );
+    OffScrTime = micros() + 2000000;
 }
 
 
@@ -446,27 +392,60 @@ void loop()
 
     // send uRgh from geiger
     doPublish("R0", String(MRh, 1));
+    
     //-----
     // --- BME280
-    bme.readSensor();      //получили данные с датчика
+    if bBME_ext {
+    bme_ext.readSensor();      //получили данные с датчика ext
     delay(10);
-    bmeGotTemp();
-    delay(10);
+     bme_ext_temp = bme_ext.getTemperature_C();
+      Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
+      if (bme_ext_temp > -50 and bme_ext_temp < 50 )  {
+        doPublish("t0", String(bme_ext_temp, 1));
+      }
     bmeGotHumidity();
-    delay(10);
+      bme_ext_humi = bme_ext.getHumidity();
+      Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
+      if (bme_ext_humi > 5 and bme_ext_humi < 99 )  {
+        doPublish("h0", String(bme_ext_humi, 1));
+      }
     bmeGotPressure();
+      bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638);
+      Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
+      if (bme_ext_pres > 600 and bme_ext_pres < 900 )  {
+        doPublish("p0", String(bme_ext_pres, 1));
+      }
+    }
+    
+    if bBME_int {
+    bme_int.readSensor();      //получили данные с датчика int
     delay(10);
-
-    //--- DHT22
-    dhtGotTemp();
-    delay(10);
-    dhtGotHumidity();
-    delay(10);
+      bme_int_temp = bme_int.getTemperature_C();
+      Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
+      if (bme_int_temp > -50 and bme_int_temp < 50 )  {
+        doPublish("t1", String(bme_int_temp, 1));
+      }
+    bmeGotHumidity();
+      bme_int_humi = bme_int.getHumidity();
+      Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
+      if (bme_int_humi > 5 and bme_int_humi < 99 )  {
+        doPublish("h1", String(bme_int_humi, 1));
+      }
+    bmeGotPressure();
+      bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
+      Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
+      if (bme_int_pres > 600 and bme_int_pres < 900 )  {
+        doPublish("p1", String(bme_int_pres, 1));
+      }
+    }
+    
+    
 
     // LED OFF
     digitalWrite(LED_BUILTIN, LOW);
   }
 
+  // distatce sensor
   iDst = analogRead(lnPin);
   //  Serial.println(iDst);
 
@@ -486,11 +465,33 @@ void loop()
     ScreenOn();
     bScrOn = true;
 
-    bme.readSensor();      //получили данные с датчика
-    Serial.printf("Temp=%0.1f\n",  bme.getTemperature_C());
-    Serial.printf("Hum=%0.1f\n",  bme.getHumidity());
-    Serial.printf("Press=%0.1f\n",  bme.getPressure_MB());
-    OutToScr( bme.getTemperature_C(), bme.getHumidity(), (bme.getPressure_MB() * 0.7500638), -8.8, 88.8, MRh );
+   if bBME_ext {
+    bme_ext.readSensor();      //получили данные с датчика ext
+    delay(10);
+     bme_ext_temp = bme_ext.getTemperature_C();
+      Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
+     bmeGotHumidity();
+      bme_ext_humi = bme_ext.getHumidity();
+      Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
+    bmeGotPressure();
+      bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638);
+      Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
+    }
+    
+    if bBME_int {
+    bme_int.readSensor();      //получили данные с датчика int
+    delay(10);
+      bme_int_temp = bme_int.getTemperature_C();
+      Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
+    bmeGotHumidity();
+      bme_int_humi = bme_int.getHumidity();
+      Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
+    bmeGotPressure();
+      bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
+      Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
+    }  
+    OutToScr( bbme_ext_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , MRh );
+    
     OffScrTime = micros() + 5000000;
     lDstOffTime = OffScrTime + 1000000;
   }
