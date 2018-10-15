@@ -9,7 +9,7 @@ const char* password = "xxx";
 
 //wemos esp32
 // LED
-const int LED_BUILTIN = 2; //Onboard LED Pin ***! change this for M5!
+const int LED_BUILTIN = 1; //Onboard LED Pin ***! change this for M5!
 
 // Time settings
 const char* ntpServerName = "pool.ntp.org";
@@ -40,10 +40,10 @@ const int BME_int_ADDR=0x76;
 
 //***Geiger
 /* pin that is attached to interrupt 12 = ESP32 GIO12 */
-byte interruptPin = 12; 
+byte interruptPin = 2; 
 const int LOG_PERIOD=6000000;  //Logging period //100000 - 10s, 600000 - 60s,1m  6000000 - 10m  36000000 -60m,1h
 
-//const int LOG_PERIOD=60000;  // 4test
+
 //J305?
 const float CF = 0.0052; //different for different tubes. The conversion factor (CF) for the official tube J305? is 0.008120 or CF=0.0058 ?
 
