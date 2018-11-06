@@ -66,6 +66,18 @@ boolean bDstLvl = false;
 int iDst = 0;
 unsigned long lDstOffTime; //Off,Update screens
 
+// Temp DS18B20
+#include <OneWire.h>
+#include <DallasTemperature.h>
+// Создаем объект OneWire
+OneWire oneWire(PIN_DS18B20);
+// Создаем объект DallasTemperature для работы с сенсорами, передавая ему ссылку на объект для работы с 1-Wire.
+DallasTemperature dallasSensors(&oneWire);
+// Специальный объект для хранения адреса устройства
+DeviceAddress sensorAddress;
+boolean bDS = false;
+float ds_temp = 0.0;
+
 
 // ===INTERRUPTS==
 //hw interrupt
@@ -280,15 +292,19 @@ void setup()
   if (!bme_ext.begin()) {
     Serial.println("!!*** Could not find a valid BME280 ext sensor, check wiring! ***!! ");
     bBME_ext = false;
+  } else {
+    Serial.println("BME280 ext sensor finded&activated");
+    bBME_ext = true;
   }
-  Serial.println("BME280 ext sensor activated");
   bme_ext.setTempCal(0);  //correcting data, need calibrate this!!!   *************
 
   if (!bme_int.begin()) {
     Serial.println("!!*** Could not find a valid BME280 int sensor, check wiring!  ***!! ");
     bBME_int = false;
+  } else {
+    Serial.println("BME280 int sensor finded&activated");
+    bBME_int = true;
   }
-  Serial.println("BME280 int sensor activated");
   bme_int.setTempCal(0);  //correcting data, need calibrate this!!!   *************
 
 
@@ -299,6 +315,30 @@ void setup()
   cpm = 0.0;
   //  multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
   attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
+  //---
+
+  // Temp dallas
+  dallasSensors.begin();
+
+  // Поиск устройства:
+  // Ищем адрес устройства по порядку (индекс задается вторым параметром функции)
+  if (!dallasSensors.getAddress(sensorAddress, 0)) {
+    Serial.println("*** Could not find Dallas sensor ***");
+    bDS = false;
+  } else {
+    bDS = true;
+  }
+
+
+  // Устанавливаем разрешение датчика в 12 бит (мы могли бы установить другие значения, точность уменьшится, но скорость получения данных увеличится
+  dallasSensors.setResolution(sensorAddress, 12);
+
+  Serial.print("Разрешение датчика: ");
+  Serial.print(dallasSensors.getResolution(sensorAddress), DEC);
+  Serial.println();
+
+  // ----
+
 
 
   //distance
@@ -307,7 +347,7 @@ void setup()
   pinMode(lnPin, INPUT);
   lDstOffTime = micros();
 
-  // show on start
+  // *** show on start
   ScreenOn();
   bScrOn = true;
 
@@ -345,7 +385,14 @@ void setup()
     bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
     Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
   }
-  OutToScr( bme_ext_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , 0.0 );
+
+  if (bDS) {
+    dallasSensors.requestTemperatures(); // Просим ds18b20 собрать данные
+    ds_temp = dallasSensors.getTempC(sensorAddress);
+    Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
+  }
+
+  OutToScr( ds_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , 0.0 );
   OffScrTime = micros() + 2000000;
 }
 
@@ -367,11 +414,11 @@ void loop()
 
     // --geiger--
     //calc per minutes
-    cpm = counts * (60000.0 / LOG_PERIOD);
+    cpm = counts * (600000.0 / LOG_PERIOD);
     Serial.println();
     Serial.print("counts="); Serial.println(counts);
     Serial.print("CPM="); Serial.println(cpm);
-    Serial.print("CPM_calc="); Serial.println(counts * (60000.0 / LOG_PERIOD));
+    Serial.print("CPM_calc="); Serial.println(counts * (600000.0 / LOG_PERIOD));
 
     MSVh = cpm * CF;
     MRh = cpm * CF * 100;  //100 рентген = 1 зиверт
@@ -388,7 +435,7 @@ void loop()
     printLocalTime();
 
     // send uRgh from geiger
-    doPublish("R0", String(MRh, 1));
+    doPublish("uRh", String(MRh, 1));
 
     //-----
     // --- BME280
@@ -398,19 +445,19 @@ void loop()
       bme_ext_temp = bme_ext.getTemperature_C();
       Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
       if (bme_ext_temp > -50 and bme_ext_temp < 50 )  {
-        doPublish("t0", String(bme_ext_temp, 1));
+        doPublish("bme-e-t", String(bme_ext_temp, 1));
       }
       //  bmeGotHumidity();
       bme_ext_humi = bme_ext.getHumidity();
       Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
       if (bme_ext_humi > 5 and bme_ext_humi < 99 )  {
-        doPublish("h0", String(bme_ext_humi, 1));
+        doPublish("bme-e-h", String(bme_ext_humi, 1));
       }
       // bmeGotPressure();
       bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638);
       Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
       if (bme_ext_pres > 600 and bme_ext_pres < 900 )  {
-        doPublish("p0", String(bme_ext_pres, 1));
+        doPublish("bme-e-p", String(bme_ext_pres, 1));
       }
     }
 
@@ -420,38 +467,46 @@ void loop()
       bme_int_temp = bme_int.getTemperature_C();
       Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
       if (bme_int_temp > -50 and bme_int_temp < 50 )  {
-        doPublish("t1", String(bme_int_temp, 1));
+        doPublish("bme-i-t", String(bme_int_temp, 1));
       }
       //  bmeGotHumidity();
       bme_int_humi = bme_int.getHumidity();
       Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
       if (bme_int_humi > 5 and bme_int_humi < 99 )  {
-        doPublish("h1", String(bme_int_humi, 1));
+        doPublish("bme-i-h", String(bme_int_humi, 1));
       }
       //bmeGotPressure();
       bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
       Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
       if (bme_int_pres > 600 and bme_int_pres < 900 )  {
-        doPublish("p1", String(bme_int_pres, 1));
+        doPublish("bme-i-p", String(bme_int_pres, 1));
       }
     }
 
+    if (bDS) {
+      dallasSensors.requestTemperatures(); // Просим ds18b20 собрать данные
+      ds_temp = dallasSensors.getTempC(sensorAddress);
+      Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
+      if (ds_temp > -50 and ds_temp < 50 )  {
+        doPublish("ds-e-t", String(ds_temp, 1));
+      }
 
 
-    // LED OFF
-    digitalWrite(LED_BUILTIN, LOW);
+
+      // LED OFF
+      digitalWrite(LED_BUILTIN, LOW);
+    }
   }
-
   // distatce sensor
   iDst = analogRead(lnPin);
   //  Serial.println(iDst);
 
- /* if (iDst > 4000) {
-    Serial.print("time dst =");
-    Serial.println(lDstOffTime);
-    Serial.print("time now=");
-    Serial.println( micros());
-  } */
+  /* if (iDst > 4000) {
+     Serial.print("time dst =");
+     Serial.println(lDstOffTime);
+     Serial.print("time now=");
+     Serial.println( micros());
+    } */
   if ( lDstOffTime > micros()) { //passage through 0
     lDstOffTime = micros();
   }
@@ -497,7 +552,13 @@ void loop()
       bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
       Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
     }
-    OutToScr( bme_ext_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , MRh );
+    if (bDS) {
+      dallasSensors.requestTemperatures(); // Просим ds18b20 собрать данные
+      ds_temp = dallasSensors.getTempC(sensorAddress);
+      Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
+    }
+
+    OutToScr( ds_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , MRh );
 
     OffScrTime = micros() + 5000000;
     lDstOffTime = OffScrTime + 1000000;
@@ -523,7 +584,6 @@ void loop()
   }
 
 
-
   //off screens
   if  (bScrOn) {
     if (micros() >= OffScrTime) {
@@ -534,6 +594,7 @@ void loop()
   bDstLvl = false;
 
   M5.update();
+
 
 }
 // ================
