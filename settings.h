@@ -6,6 +6,8 @@ const char* password = "xxx";
 // --
 
 //M5
+// LED
+const int LED_BUILTIN = 15; //Onboard LED Pin (M5 fire)
 
 //wemos esp32
 // LED
