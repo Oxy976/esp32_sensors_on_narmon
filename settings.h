@@ -47,7 +47,7 @@ const int LOG_PERIOD=6000000;  //Logging period //100000 - 10s, 600000 - 60s,1m 
 
 
 //J305?
-const float CF = 0.0052; //different for different tubes. The conversion factor (CF) for the official tube J305? is 0.008120 or CF=0.0058 ?
+const float CF = 0.0051; //different for different tubes. The conversion factor (CF) for the official tube J305? is 0.008120 or CF=0.0058 ?
 
 
 //distance 
@@ -56,6 +56,8 @@ const float CF = 0.0052; //different for different tubes. The conversion factor 
 //2Y0A21 length (distance) sensor
 byte lnPin = 35;
 
+// DS18B20 
+#define PIN_DS18B20 5
+
 
 // Application settings
-
