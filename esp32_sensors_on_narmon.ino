@@ -36,6 +36,7 @@ PubSubClient client(server, 1883, wifiClient);
 
 #include <Wire.h>
 #include "cactus_io_BME280_I2C.h"
+// http://static.cactus.io/downloads/library/bme280/cactus_io_BME280_I2C.zip
 // Create the BME280 object
 BME280_I2C bme_ext(BME_ext_ADDR);  // I2C using address
 BME280_I2C bme_int(BME_int_ADDR);  // I2C using address
@@ -49,6 +50,22 @@ float bme_int_pres = 0.0;
 float bme_int_temp = 0.0;
 float bme_int_humi = 0.0;
 
+//Create the HTU21D object
+//  https://github.com/enjoyneering/HTU21D
+#include <HTU21D.h>
+/*
+HTU21D resolution:
+HTU21D_RES_RH12_TEMP14 - RH: 12Bit, Temperature: 14Bit, by default
+HTU21D_RES_RH8_TEMP12  - RH: 8Bit,  Temperature: 12Bit
+HTU21D_RES_RH10_TEMP13 - RH: 10Bit, Temperature: 13Bit
+HTU21D_RES_RH11_TEMP11 - RH: 11Bit, Temperature: 11Bit
+*/
+HTU21D htu_ext(HTU21D_RES_RH12_TEMP14);
+boolean bHTU_ext = true;
+float htu_ext_temp = 0.0;
+float htu_ext_humi = 0.0;
+
+
 //***Geiger
 unsigned long counts;     //variable for GM Tube events
 float cpm = 0.0;        //variable for CPM
@@ -57,7 +74,7 @@ float MSVh = 0.0;
 float MRh = 0.0;
 
 //***DHT
-//#include <Adafruit_Sensor.h>
+//https://github.com/adafruit/DHT-sensor-library
 #include <DHT.h>
 //#include <DHT_U.h>
 
@@ -67,6 +84,7 @@ int iDst = 0;
 unsigned long lDstOffTime; //Off,Update screens
 
 // Temp DS18B20
+//https://github.com/milesburton/Arduino-Temperature-Control-Library
 #include <OneWire.h>
 #include <DallasTemperature.h>
 // Создаем объект OneWire
@@ -77,6 +95,15 @@ DallasTemperature dallasSensors(&oneWire);
 DeviceAddress sensorAddress;
 boolean bDS = false;
 float ds_temp = 0.0;
+
+//for out to screen
+float scr_ext_temp = 0.0;
+float scr_ext_humi = 0.0;
+float scr_pres = 0.0;
+float scr_int_temp = 0.0;
+float scr_int_humi = 0.0;
+float scr_mrh = 0.0;
+
 
 
 // ===INTERRUPTS==
@@ -108,7 +135,7 @@ void IRAM_ATTR onTimer() {
 
 //==**== End Config ==**==
 
-
+// !!! добавить отключение прерываний при загрузке обновления !!
 void setup_OTGwserver() {
   /*return index page which is stored in serverIndex */
   wserver.on("/", HTTP_GET, []() {
@@ -232,7 +259,54 @@ void doPublish(String id, String value) {
   }
 }
 
+void GetDataFromSensors() {
+  if (bBME_int) {
+    bme_int.readSensor();      //get data
+    delay(10);
+    bme_int_temp = bme_int.getTemperature_C(); //read data
+    Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
+    bme_int_humi = bme_int.getHumidity(); //read data
+    Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
+    bme_int_pres = (bme_int.getPressure_MB() * 0.7500638); //read data
+    Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
+    //--  to screen
+    scr_pres = bme_int_pres;
+    scr_int_temp = bme_int_temp;
+    scr_int_humi = bme_int_humi;
+  }
 
+  if (bBME_ext) {
+    bme_ext.readSensor();      //get data
+    delay(10);
+    bme_ext_temp = bme_ext.getTemperature_C(); //read data
+    Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
+    bme_ext_humi = bme_ext.getHumidity(); //read data
+    Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
+    bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638); //read data
+    Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
+    //--  to screen
+    scr_ext_temp = bme_ext_temp;
+    scr_ext_humi = bme_ext_humi;
+  }
+
+  if (bHTU_ext) {
+    htu_ext_temp = htu_ext.readTemperature(); //read data
+    Serial.printf("Temp HTU21D=%0.1f\n", htu_ext_temp, " *C");
+    htu_ext_humi = htu_ext.readCompensatedHumidity(); //read data
+    Serial.printf("Humidity HTU21D=%0.1f\n", htu_ext_humi, "%");
+    //--  to screen
+    scr_ext_temp = htu_ext_temp;
+    scr_ext_humi = htu_ext_humi;
+  }
+
+  if (bDS) {
+    dallasSensors.requestTemperatures(); // get data
+    ds_temp = dallasSensors.getTempC(sensorAddress);  //read data
+    Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
+    //--  to screen
+    scr_ext_temp = ds_temp;
+  }
+}
 
 
 
@@ -240,8 +314,7 @@ void doPublish(String id, String value) {
 
 
 //============
-void setup()
-{
+void setup()  {
 
   M5.begin();
   m5.Speaker.mute();
@@ -290,22 +363,32 @@ void setup()
   // init sensors
   //***BME
   if (!bme_ext.begin()) {
-    Serial.println("!!*** Could not find a valid BME280 ext sensor, check wiring! ***!! ");
+    Serial.println("*------> Could not find a valid BME280 ext sensor, check wiring! ***!! ");
     bBME_ext = false;
   } else {
-    Serial.println("BME280 ext sensor finded&activated");
+    Serial.println("+++> BME280 ext sensor finded&activated");
     bBME_ext = true;
   }
   bme_ext.setTempCal(0);  //correcting data, need calibrate this!!!   *************
 
   if (!bme_int.begin()) {
-    Serial.println("!!*** Could not find a valid BME280 int sensor, check wiring!  ***!! ");
+    Serial.println("*------> Could not find a valid BME280 int sensor, check wiring!  ***!! ");
     bBME_int = false;
   } else {
-    Serial.println("BME280 int sensor finded&activated");
+    Serial.println("+++> BME280 int sensor finded&activated");
     bBME_int = true;
   }
   bme_int.setTempCal(0);  //correcting data, need calibrate this!!!   *************
+
+  //***HTU21D
+   if (!htu_ext.begin()) {
+    Serial.println("*------> Could not find a valid HTU21D ext sensor, check wiring! ***!! ");
+    bHTU_ext = false;
+  } else {
+    Serial.println("+++> HTU21D ext sensor finded&activated");
+    bHTU_ext = true;
+  }
+ 
 
 
   //***Geiger
@@ -317,18 +400,18 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
   //---
 
-  // Temp dallas
+  // ***dallas
   dallasSensors.begin();
 
   // Поиск устройства:
   // Ищем адрес устройства по порядку (индекс задается вторым параметром функции)
   if (!dallasSensors.getAddress(sensorAddress, 0)) {
-    Serial.println("*** Could not find Dallas sensor ***");
+    Serial.println("*------> Could not find Dallas sensor ***");
     bDS = false;
   } else {
+    Serial.println("+++> Dallas sensor finded");
     bDS = true;
   }
-
 
   // Устанавливаем разрешение датчика в 12 бит (мы могли бы установить другие значения, точность уменьшится, но скорость получения данных увеличится
   dallasSensors.setResolution(sensorAddress, 12);
@@ -360,45 +443,18 @@ void setup()
     //    return;
   }
   delay(2000);
-  if (bBME_ext) {
-    bme_ext.readSensor();      //получили данные с датчика ext
-    delay(10);
-    bme_ext_temp = bme_ext.getTemperature_C();
-    Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
-    //     bmeGotHumidity();
-    bme_ext_humi = bme_ext.getHumidity();
-    Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
-    //    bmeGotPressure();
-    bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638);
-    Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
-  }
 
-  if (bBME_int) {
-    bme_int.readSensor();      //получили данные с датчика int
-    delay(10);
-    bme_int_temp = bme_int.getTemperature_C();
-    Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
-    //    bmeGotHumidity();
-    bme_int_humi = bme_int.getHumidity();
-    Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
-    //    bmeGotPressure();
-    bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
-    Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
-  }
+  GetDataFromSensors();
 
-  if (bDS) {
-    dallasSensors.requestTemperatures(); // Просим ds18b20 собрать данные
-    ds_temp = dallasSensors.getTempC(sensorAddress);
-    Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
-  }
+  scr_mrh = 88.8;
+  OutToScr( scr_ext_temp, scr_ext_humi, scr_pres, scr_int_temp, scr_int_humi , scr_mrh );
 
-  OutToScr( ds_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , 0.0 );
+  // OutToScr( ds_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , 0.0 );
   OffScrTime = micros() + 2000000;
 }
 
 
-void loop()
-{
+void loop()  {
   //web OTG
   wserver.handleClient();
 
@@ -435,166 +491,117 @@ void loop()
     printLocalTime();
 
     // send uRgh from geiger
-    doPublish("uRh", String(MRh, 1));
+    doPublish("R0", String(MRh, 1));
 
     //-----
-    // --- BME280
-    if (bBME_ext) {
-      bme_ext.readSensor();      //получили данные с датчика ext
-      delay(10);
-      bme_ext_temp = bme_ext.getTemperature_C();
-      Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
-      if (bme_ext_temp > -50 and bme_ext_temp < 50 )  {
-        doPublish("bme-e-t", String(bme_ext_temp, 1));
-      }
-      //  bmeGotHumidity();
-      bme_ext_humi = bme_ext.getHumidity();
-      Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
-      if (bme_ext_humi > 5 and bme_ext_humi < 99 )  {
-        doPublish("bme-e-h", String(bme_ext_humi, 1));
-      }
-      // bmeGotPressure();
-      bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638);
-      Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
-      if (bme_ext_pres > 600 and bme_ext_pres < 900 )  {
-        doPublish("bme-e-p", String(bme_ext_pres, 1));
-      }
-    }
+    GetDataFromSensors();
 
     if (bBME_int) {
-      bme_int.readSensor();      //получили данные с датчика int
-      delay(10);
-      bme_int_temp = bme_int.getTemperature_C();
-      Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
       if (bme_int_temp > -50 and bme_int_temp < 50 )  {
-        doPublish("bme-i-t", String(bme_int_temp, 1));
+        doPublish("T2", String(bme_int_temp, 1));
       }
-      //  bmeGotHumidity();
-      bme_int_humi = bme_int.getHumidity();
-      Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
       if (bme_int_humi > 5 and bme_int_humi < 99 )  {
-        doPublish("bme-i-h", String(bme_int_humi, 1));
+        doPublish("H2", String(bme_int_humi, 1));
       }
-      //bmeGotPressure();
-      bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
-      Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
       if (bme_int_pres > 600 and bme_int_pres < 900 )  {
-        doPublish("bme-i-p", String(bme_int_pres, 1));
+        doPublish("P2", String(bme_int_pres, 1));
       }
     }
-
-    if (bDS) {
-      dallasSensors.requestTemperatures(); // Просим ds18b20 собрать данные
-      ds_temp = dallasSensors.getTempC(sensorAddress);
-      Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
-      if (ds_temp > -50 and ds_temp < 50 )  {
-        doPublish("ds-e-t", String(ds_temp, 1));
-      }
-
-
-
-      // LED OFF
-      digitalWrite(LED_BUILTIN, LOW);
-    }
-  }
-  // distatce sensor
-  iDst = analogRead(lnPin);
-  //  Serial.println(iDst);
-
-  /* if (iDst > 4000) {
-     Serial.print("time dst =");
-     Serial.println(lDstOffTime);
-     Serial.print("time now=");
-     Serial.println( micros());
-    } */
-  if ( lDstOffTime > micros()) { //passage through 0
-    lDstOffTime = micros();
-  }
-
-  if ((iDst > 3500) and !bDstLvl and (lDstOffTime < micros()) ) {
-    bDstLvl = true;
-  }
-  // Serial.println(bDstLvl);
-  //  Serial.println(iDst);
-
-
-  // =Buttons=
-  if (M5.BtnA.wasPressed()  or bDstLvl )  {
-    //if (M5.BtnA.wasPressed()  )  {
-    Serial.print(" _Pressed kb A - ");
-    printLocalTime();
-
-    ScreenOn();
-    bScrOn = true;
 
     if (bBME_ext) {
-      bme_ext.readSensor();      //получили данные с датчика ext
-      delay(10);
-      bme_ext_temp = bme_ext.getTemperature_C();
-      Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
-      //    bmeGotHumidity();
-      bme_ext_humi = bme_ext.getHumidity();
-      Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
-      //    bmeGotPressure();
-      bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638);
-      Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
+      if (bme_ext_temp > -50 and bme_ext_temp < 50 )  {
+        doPublish("T1", String(bme_ext_temp, 1));
+      }
+      if (bme_ext_humi > 5 and bme_ext_humi < 99 )  {
+        doPublish("H1", String(bme_ext_humi, 1));
+      }
+      if (bme_ext_pres > 600 and bme_ext_pres < 900 )  {
+        doPublish("P1", String(bme_ext_pres, 1));
+      }
     }
 
-    if (bBME_int) {
-      bme_int.readSensor();      //получили данные с датчика int
-      delay(10);
-      bme_int_temp = bme_int.getTemperature_C();
-      Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
-      //    bmeGotHumidity();
-      bme_int_humi = bme_int.getHumidity();
-      Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
-      //    bmeGotPressure();
-      bme_int_pres = (bme_int.getPressure_MB() * 0.7500638);
-      Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
-    }
     if (bDS) {
-      dallasSensors.requestTemperatures(); // Просим ds18b20 собрать данные
-      ds_temp = dallasSensors.getTempC(sensorAddress);
-      Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
+      if (ds_temp > -50 and ds_temp < 50 )  {
+        doPublish("T0", String(ds_temp, 1));
+      }
     }
 
-    OutToScr( ds_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , MRh );
+    if (bHTU_ext) {
+      if (htu_ext_temp > -50 and htu_ext_temp < 50 )  {
+        doPublish("T2", String(htu_ext_temp, 1));
+      }
+      if (htu_ext_humi > 5 and htu_ext_humi < 99 )  {
+        doPublish("H2", String(htu_ext_humi, 1));
+      }
+    }
 
+
+    // LED OFF
+    digitalWrite(LED_BUILTIN, LOW);
+  }
+
+// distatce sensor
+iDst = analogRead(lnPin);
+
+if ( lDstOffTime > micros()) { //passage through 0
+  lDstOffTime = micros();
+}
+
+if ((iDst > 3500) and !bDstLvl and (lDstOffTime < micros()) ) {
+  bDstLvl = true;
+}
+// Serial.println(bDstLvl);
+//  Serial.println(iDst);
+
+
+// =Buttons=
+if (M5.BtnA.wasPressed()  or bDstLvl )  {
+  Serial.print(" _Pressed kb A - ");
+  printLocalTime();
+
+  ScreenOn();
+  bScrOn = true;
+
+  GetDataFromSensors();
+
+  scr_mrh = MRh;
+  OutToScr( scr_ext_temp, scr_ext_humi, scr_pres, scr_int_temp, scr_int_humi , scr_mrh );
+
+  OffScrTime = micros() + 5000000;
+  lDstOffTime = OffScrTime + 1000000;
+}
+
+if (M5.BtnB.wasPressed())
+{
+  Serial.print(" _Pressed kb B - ");
+  printLocalTime();
+
+  ScreenOn();
+  bScrOn = true;
+
+  if (getLocalTime(&timeinfo)) {
+    ShowTime(timeinfo);
     OffScrTime = micros() + 5000000;
-    lDstOffTime = OffScrTime + 1000000;
   }
-
-  if (M5.BtnB.wasPressed())
+  else
   {
-    Serial.print(" _Pressed kb B - ");
-    printLocalTime();
-
-    ScreenOn();
-    bScrOn = true;
-
-    if (getLocalTime(&timeinfo)) {
-      ShowTime(timeinfo);
-      OffScrTime = micros() + 5000000;
-    }
-    else
-    {
-      Serial.println("Failed to obtain time");
-      //    return;
-    }
+    Serial.println("Failed to obtain time");
+    //    return;
   }
+}
 
 
-  //off screens
-  if  (bScrOn) {
-    if (micros() >= OffScrTime) {
-      ScreenOff();
-      bScrOn = false;
-    }
+//off screens
+if  (bScrOn) {
+  if (micros() >= OffScrTime) {
+    ScreenOff();
+    bScrOn = false;
   }
-  bDstLvl = false;
+}
 
-  M5.update();
+bDstLvl = false;
 
+M5.update();
 
 }
 // ================
