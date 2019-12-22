@@ -528,10 +528,10 @@ void loop()  {
 
     if (bHTU_ext) {
       if (htu_ext_temp > -50 and htu_ext_temp < 50 )  {
-        doPublish("T2", String(htu_ext_temp, 1));
+        doPublish("T1", String(htu_ext_temp, 1));
       }
       if (htu_ext_humi > 5 and htu_ext_humi < 99 )  {
-        doPublish("H2", String(htu_ext_humi, 1));
+        doPublish("H1", String(htu_ext_humi, 1));
       }
     }
 
