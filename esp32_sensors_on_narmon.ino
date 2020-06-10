@@ -95,6 +95,8 @@ DallasTemperature dallasSensors(&oneWire);
 DeviceAddress sensorAddress;
 boolean bDS = false;
 float ds_temp = 0.0;
+float ds_fix = -1.0;  //fix not correct data from sensor (C)
+
 
 //for out to screen
 float scr_ext_temp = 0.0;
@@ -302,6 +304,7 @@ void GetDataFromSensors() {
   if (bDS) {
     dallasSensors.requestTemperatures(); // get data
     ds_temp = dallasSensors.getTempC(sensorAddress);  //read data
+    ds_temp+=ds_fix; //fix 
     Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
     //--  to screen
     scr_ext_temp = ds_temp;
