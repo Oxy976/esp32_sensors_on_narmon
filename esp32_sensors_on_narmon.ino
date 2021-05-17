@@ -35,6 +35,15 @@ PubSubClient client(server, 1883, wifiClient);
 //** sensors**
 
 #include <Wire.h>
+
+//***Geiger
+//RadSens
+#include "radSens1v2.h"
+ClimateGuard_RadSens1v2 radSens(RS_DEFAULT_I2C_ADDRESS); /*Constructor of the class ClimateGuard_RadSens1v2,
+                                                           sets the address parameter of I2C sensor.
+                                                           Default address: 0x66.*/
+
+//***BME280
 #include "cactus_io_BME280_I2C.h"
 // http://static.cactus.io/downloads/library/bme280/cactus_io_BME280_I2C.zip
 // Create the BME280 object
@@ -50,6 +59,7 @@ float bme_int_pres = 0.0;
 float bme_int_temp = 0.0;
 float bme_int_humi = 0.0;
 
+//***HTU21D
 //Create the HTU21D object
 //  https://github.com/enjoyneering/HTU21D
 #include <HTU21D.h>
@@ -66,7 +76,7 @@ float htu_ext_temp = 0.0;
 float htu_ext_humi = 0.0;
 
 
-//***Geiger
+//***Geiger +++OLD _4DEL_ ++++
 unsigned long counts;     //variable for GM Tube events
 float cpm = 0.0;        //variable for CPM
 unsigned long previousMillis;  //variable for time measurement
@@ -109,21 +119,22 @@ float scr_mrh = 0.0;
 
 
 // ===INTERRUPTS==
-//hw interrupt
+//setup hw interrupt\timer
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 // on timer interrupt
 hw_timer_t * timer = NULL;
 volatile SemaphoreHandle_t timerSemaphore;
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
 
+/* 4del
 // HW INTERRUPT service
 void IRAM_ATTR tube_impulse() {      //subprocedure for capturing events from Geiger Kit
   portENTER_CRITICAL_ISR(&mux);
   counts++;
   portEXIT_CRITICAL_ISR(&mux);
-  Serial.print("'");                //4TEST!
+ // Serial.print("'");                //4TEST!
 }
-
+*/ 
 // timer interrupt service
 void IRAM_ATTR onTimer() {
   // Give a semaphore that we can check in the loop
@@ -336,7 +347,7 @@ void setup()  {
   setup_wifi();
   setup_OTGwserver();
 
-  //--interrupt
+  //--init timer
   // Create semaphore to inform us when the timer has fired
   timerSemaphore = xSemaphoreCreateBinary();
   // Use 1st timer of 4 (counted from zero).
@@ -393,7 +404,7 @@ void setup()  {
   }
  
 
-
+/* 4del
   //***Geiger
   pinMode(interruptPin, INPUT);
   Serial.println("init geiger");
@@ -402,6 +413,7 @@ void setup()  {
   //  multiplier = MAX_PERIOD / LOG_PERIOD;      //calculating multiplier, depend on your log period
   attachInterrupt(digitalPinToInterrupt(interruptPin), tube_impulse, FALLING); //define external interrupts
   //---
+*/
 
   // ***dallas
   dallasSensors.begin();
@@ -470,7 +482,7 @@ void loop()  {
 
 
     // собираем данные с  датчиков и отправляем...
-
+/* 4del
     // --geiger--
     //calc per minutes
     cpm = counts * (600000.0 / LOG_PERIOD);
@@ -486,8 +498,8 @@ void loop()  {
     Serial.print("MRhCF="); Serial.println(MRh);
 
     counts = 0;
-
-    // отравили данные на сервер...
+*/
+    // отравляем данные на сервер...
     // пока отправка вкл. led
     digitalWrite(LED_BUILTIN, HIGH);
     Serial.print("Send to server - ");
@@ -503,7 +515,7 @@ void loop()  {
       if (bme_int_temp > -50 and bme_int_temp < 50 )  {
         doPublish("T2", String(bme_int_temp, 1));
       }
-      if (bme_int_humi > 5 and bme_int_humi < 99 )  {
+      if (bme_int_humi > 5 and bme_int_humi < 101 )  {
         doPublish("H2", String(bme_int_humi, 1));
       }
       if (bme_int_pres > 600 and bme_int_pres < 900 )  {
@@ -515,7 +527,7 @@ void loop()  {
       if (bme_ext_temp > -50 and bme_ext_temp < 50 )  {
         doPublish("T1", String(bme_ext_temp, 1));
       }
-      if (bme_ext_humi > 5 and bme_ext_humi < 99 )  {
+      if (bme_ext_humi > 5 and bme_ext_humi < 101 )  {
         doPublish("H1", String(bme_ext_humi, 1));
       }
       if (bme_ext_pres > 600 and bme_ext_pres < 900 )  {
@@ -533,7 +545,7 @@ void loop()  {
       if (htu_ext_temp > -50 and htu_ext_temp < 50 )  {
         doPublish("T1", String(htu_ext_temp, 1));
       }
-      if (htu_ext_humi > 5 and htu_ext_humi < 99 )  {
+      if (htu_ext_humi > 5 and htu_ext_humi < 101 )  {
         doPublish("H1", String(htu_ext_humi, 1));
       }
     }

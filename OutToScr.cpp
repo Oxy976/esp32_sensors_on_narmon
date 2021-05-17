@@ -2,7 +2,9 @@
 #include <M5Stack.h>
 // https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 
-#include "utf8rus.h"
+//** Переписать под UTF8 ! ***
+
+/*#include "utf8rus.h"
 
 #include "fonts/RobotoR12pt8b.h"
 #define F_RR12 &RobotoR12pt8b
@@ -12,6 +14,7 @@
 #define F_RR16 &RobotoR16pt8b
 #include "fonts/RobotoR32pt8b.h"
 #define F_RR32 &RobotoR32pt8b
+*/
 
 int sym_dnum[] = {143, 144, 145, 146, 147, 148, 149, 150, 151, 152 }; //!!only for font RobotoR !!
 int sym_gradC = 159; //!!only for font RobotoR !!
