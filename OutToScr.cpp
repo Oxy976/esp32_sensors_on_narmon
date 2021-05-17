@@ -40,20 +40,20 @@ void OutStrToScr( String stb1, String  stsr1, String  stsr2, String  stsd1, Stri
   M5.Lcd.setTextColor(TFT_RED);
  // M5.Lcd.setTextColor(0xfbe4);
   //  M5.Lcd.setTextColor(0xe8e4);
-  M5.Lcd.setFont(F_RR32);                 // Select the font
+//  M5.Lcd.setFont(F_RR32);                 // Select the font
 
   M5.Lcd.drawString(stb1, 106, 80, 1);// Print the test text in the custom font
 
   //  M5.Lcd.setTextColor(0xfbe4);
   //M5.Lcd.setTextColor(0xe8e4);
   M5.Lcd.setTextColor(TFT_MAGENTA);
-  M5.Lcd.setFont(F_RR16);
+//  M5.Lcd.setFont(F_RR16);
   M5.Lcd.drawString(stsr1, 267, 40, 1);
   M5.Lcd.drawString(stsr2, 267, 120, 1);
 
   //M5.Lcd.setTextColor(0xff80);
   M5.Lcd.setTextColor(TFT_YELLOW);
-  M5.Lcd.setFont(F_RR16);
+//  M5.Lcd.setFont(F_RR16);
   M5.Lcd.drawString(stsd1, 53, 200, 1);
   M5.Lcd.drawString(stsd2, 159, 200, 1);
   M5.Lcd.drawString(stsd3, 265, 200, 1);
@@ -186,8 +186,8 @@ void ShowTime(struct tm timeinfo) {
   M5.Lcd.drawString(stme, 160, 90, 7);  // 7 - digital font
   M5.Lcd.setTextColor(TFT_GREEN, TFT_BLACK);
   M5.Lcd.setTextSize(1);
-  M5.Lcd.setFont(F_RR14);                 // Select the font
+//  M5.Lcd.setFont(F_RR14);                 // Select the font
   M5.Lcd.drawString(sdte, 160, 170, 1);
-  M5.Lcd.setFont(F_RR12);                 // Select the font
-  M5.Lcd.drawString(utf8rus(swday), 160, 210, 1);
+//  M5.Lcd.setFont(F_RR12);                 // Select the font
+//  M5.Lcd.drawString(utf8rus(swday), 160, 210, 1);
 }
