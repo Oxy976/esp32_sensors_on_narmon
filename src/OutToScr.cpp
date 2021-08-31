@@ -3,23 +3,29 @@
 // https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 
 
-#include "M5_Font_24px.h"
-#include "M5_Font_32px.h"
-#include "M5_Font_48px.h"
+//#include "fonts/M5_Font_24px.h"
+//#include "fonts/M5_Font_32px.h"
+//#include "fonts/M5_Font_48px.h"
+//#include "fonts/verdana_24px.h"
+//#include "fonts/cl_24px.h"
+#include "fonts/RoboFix_24px.h"
+#include "fonts/RoboFix_28px.h"
+#include "fonts/RoboFix_72px.h"
 
-int sym_dnum[] = {192, 193, 194, 195, 196, 197, 198, 199, 200, 201 }; //!!only for font RobotoR !!
-int sym_gradC = 208; //!!only for font RobotoR !!
-int sym_uS = 204; //!!only for font RobotoR !!
-int sym_uR = 205; //!!only for font RobotoR !!
-int sym_mmR = 207; //!!only for font RobotoR !!
+int sym_dnum[] = {0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C6, 0x00C7, 0x00C8, 0x00C9 }; //!!only for font RobotoR !!
+int sym_gradC = 0x00D0; //!!only for font RobotoR !!
+int sym_uS = 0x00CC; //!!only for font RobotoR !!
+int sym_uR = 0x00CD; //!!only for font RobotoR !!
+int sym_mmR = 0x00CF; //!!only for font RobotoR !!
+int sym_proc = 0x0025;
 
 
 void OutStrToScr( String stb1, String  stsr1, String  stsr2, String  stsd1, String  stsd2, String  stsd3 )
 {
   M5.Lcd.fillScreen(0);
-  M5.Lcd.setFreeFont(&M5_Font_48px);
+  M5.Lcd.setFreeFont(&RoboFix_72px);
 
-
+// решетка
   M5.Lcd.drawRoundRect(1, 1, 212, 160, 7, TFT_DARKGREY);
   M5.Lcd.drawRoundRect(213, 1, 106, 80, 7, TFT_DARKGREY);
   M5.Lcd.drawRoundRect(213, 81, 106, 80, 7, TFT_DARKGREY);
@@ -27,27 +33,64 @@ void OutStrToScr( String stb1, String  stsr1, String  stsr2, String  stsd1, Stri
   M5.Lcd.drawRoundRect(107, 160, 106, 80, 7, TFT_DARKGREY);
   M5.Lcd.drawRoundRect(213, 160, 106, 80, 7, TFT_DARKGREY);
 
+// темп. улица
   M5.Lcd.setTextSize(1);
-  M5.Lcd.setTextDatum(MC_DATUM); //Middle centre
+  //M5.Lcd.setTextDatum(MC_DATUM); //Middle centre
 
   M5.Lcd.setTextColor(TFT_RED);
 
-  M5.Lcd.drawString(stb1, 106, 80, 1);// Print the test text in the custom font
+  M5.Lcd.setTextDatum(MR_DATUM);
+  M5.Lcd.drawString(stb1, 108, 80, 1);
+
+  M5.Lcd.setTextDatum(ML_DATUM);
+  M5.Lcd.drawString(String(char(sym_gradC)), 136, 80, 1);
+
+// даннце улицы, правый столбик
+  M5.Lcd.setTextSize(1);
 
   M5.Lcd.setTextColor(TFT_MAGENTA);
 //  M5.Lcd.setFont(F_RR16);
-  M5.Lcd.setFreeFont(&M5_Font_24px);
-  M5.Lcd.drawString(stsr1, 267, 40, 1);
-  M5.Lcd.drawString(stsr2, 267, 120, 1);
+  M5.Lcd.setFreeFont(&RoboFix_28px);
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.setTextColor(TFT_MAGENTA);
 
+  M5.Lcd.setTextDatum(MR_DATUM);
+  M5.Lcd.drawString(stsr1, 265, 40, 1);
+  M5.Lcd.setTextDatum(ML_DATUM);
+  M5.Lcd.drawString(String(char(sym_proc)), 279, 40, 1);
+
+  M5.Lcd.setTextDatum(MR_DATUM);
+  M5.Lcd.drawString(stsr2, 270, 120, 1);
+  M5.Lcd.setTextDatum(ML_DATUM);
+  M5.Lcd.drawString(String(char(sym_mmR)), 283, 120, 1);
+
+//Внутри, нижеяя строка
   //M5.Lcd.setTextColor(0xff80);
   M5.Lcd.setTextColor(TFT_YELLOW);
 //  M5.Lcd.setFont(F_RR16);
-M5.Lcd.setFreeFont(&M5_Font_24px);
+  M5.Lcd.setFreeFont(&RoboFix_28px);
 
-  M5.Lcd.drawString(stsd1, 53, 200, 1);
+//  M5.Lcd.drawString(stsd1, 53, 200, 1);
+  M5.Lcd.setTextDatum(MR_DATUM);
+  M5.Lcd.drawString(stsd1, 55, 200, 1);
+  M5.Lcd.setTextDatum(ML_DATUM);
+  M5.Lcd.drawString(String(char(sym_gradC)), 70, 200, 1);
+
+
+//  M5.Lcd.drawString(stsd2, 159, 200, 1);
+  M5.Lcd.setTextDatum(MR_DATUM);
   M5.Lcd.drawString(stsd2, 159, 200, 1);
-  M5.Lcd.drawString(stsd3, 265, 200, 1);
+  M5.Lcd.setTextDatum(ML_DATUM);
+  M5.Lcd.drawString(String(char(sym_proc)), 173, 200, 1);
+
+
+//  M5.Lcd.drawString(stsd3, 265, 200, 1);
+  M5.Lcd.setTextDatum(MR_DATUM);
+  M5.Lcd.drawString(stsd3, 258, 200, 1);
+  M5.Lcd.setTextDatum(ML_DATUM);
+  M5.Lcd.drawString(String(char(sym_uR)), 275, 200, 1);
+
+
 
 }
 
@@ -64,7 +107,8 @@ String TempToStr(float t)
   t1 = T / 10;
   t2 = abs(T % 10);
   sym_t2 = sym_dnum[t2];
-  strT = String(t1) + "," + String(char(sym_t2)) + "  " + String(char(sym_gradC));
+//  strT = String(t1) + "," + String(char(sym_t2)) + "  " + String(char(sym_gradC));
+  strT = String(t1) + "," + String(char(sym_t2));
   return strT;
 }
 
@@ -74,7 +118,8 @@ String PressToStr(float p)
   String strP;
 
   p1 = abs(p);
-  strP = String(p1) + "  " + String(char(sym_mmR));
+//  strP = String(p1) + "  " + String(char(sym_mmR));
+  strP = String(p1) ;
   return strP;
 }
 
@@ -87,7 +132,8 @@ String HumToStr(float h)
   h1 = H / 10;
   h2 = abs(H % 10);
   sym_h2 = sym_dnum[h2];
-  strH = String(h1) + "," + String(char(sym_h2)) + "  %";
+//  strH = String(h1) + "," + String(char(sym_h2)) + "  %";
+  strH = String(h1) + "," + String(char(sym_h2));
   return strH;
 }
 
@@ -100,7 +146,8 @@ String RgToStr(float r)
   r1 = R / 10;
   r2 = abs(R % 10);
   sym_r2 = sym_dnum[r2];
-  strR = String(r1) + "," + String(char(sym_r2)) + "  " + String(char(sym_uR));
+//  strR = String(r1) + "," + String(char(sym_r2)) + "  " + String(char(sym_uR));
+  strR = String(r1) + "," + String(char(sym_r2));
   return strR;
 }
 
@@ -108,13 +155,6 @@ String RgToStr(float r)
 
 void OutToScr( float b1, float  sr1, float  sr2, float  sd1, float  sd2, float  sd3 )
 {
-  //---tst
-  b1=8.88;
-  sr1=88.1;
-  sr2=888.2;
-  sd1=8.33;
-  sd2=88.8;
-  //---
   OutStrToScr( TempToStr(b1), HumToStr(sr1), PressToStr(sr2), TempToStr(sd1), HumToStr(sd2), RgToStr(sd3) );
 }
 
@@ -184,7 +224,7 @@ void ShowTime(struct tm timeinfo) {
   M5.Lcd.drawString(stme, 160, 90, 7);  // 7 - digital font
   M5.Lcd.setTextColor(TFT_GREEN, TFT_BLACK);
   M5.Lcd.setTextSize(1);
-  M5.Lcd.setFreeFont(&M5_Font_24px);
+  M5.Lcd.setFreeFont(&RoboFix_28px);
   M5.Lcd.drawString(sdte, 160, 170, 1);
-  M5.Lcd.drawString(swday, 160, 210, 1);
+  M5.Lcd.drawString(swday, 160, 205, 1);
 }
