@@ -1,615 +1,375 @@
 /*
-   transmiting data from M5stack (esp32) with sensors to narodmon.ru across mqtt
- */
-#include <Arduino.h>
+таски:
+  - получить данные с датчиков (?? а надо-ли таском??)
+  - вывести на экран
+  - отправить на сервер
+  - обработка кнопок - vfnButtonTask
+  - обработка датчика движения vfnPirTask
+прерывания
+  - нажатия на кнопки - vfnButtonISR
+  - с датчика движения - vfnPirISR
+  - по времени для отправки на сервер - onTimerISR
+
+семафоры
+  - прерывание по таймеру - pxTimerSemaphore
+
+
+
+*/
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <driver/gpio.h>
 #include <M5Stack.h>
-
-
-#include "esp_system.h"
-#include "soc/rtc.h"
+#include <esp_log.h>
+#include <Arduino.h>
+#include "sdkconfig.h"
 
 #include "settings.h"
-#include "OutToScr.h"
-unsigned long OffScrTime; //Off,Update screens
-boolean bScrOn = true;
+#include "strct.h"
+stSens vSensVal[9]; // 10 параметров снимается с датчиков
 
-#include <SPI.h>
+#include "sensors.h"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <WebServer.h>
 #include <ESPmDNS.h>
-#include <Update.h>
-#include "time.h"
-struct tm timeinfo;
 
-#include "otg_web.h"
-WebServer wserver(80);
+#include "OutToScr.h"
 
-#include <PubSubClient.h>
-WiFiClient wifiClient;
-PubSubClient client(server, 1883, wifiClient);
+#define ESP_INTR_FLAG_DEFAULT 0
 
-
-
-// ** sensors**
-
-//#include <Wire.h>
-
-// ***Geiger
-//RadSens
-#include "radSens1v2.h"
-ClimateGuard_RadSens1v2 radSens(RS_DEFAULT_I2C_ADDRESS); //Constructor of the class ClimateGuard_RadSens1v2,
-boolean bRad = false;
-float MRh = 0.0;
-
-
-// ***BME280
-#include "cactus_io_BME280_I2C.h"
-// http://static.cactus.io/downloads/library/bme280/cactus_io_BME280_I2C.zip
-// Create the BME280 object
-BME280_I2C bme_ext(BME_ext_ADDR);  // I2C using address
-BME280_I2C bme_int(BME_int_ADDR);  // I2C using address
-boolean bBME_ext = false;
-boolean bBME_int = false;
-
-float bme_ext_pres = 0.0;
-float bme_ext_temp = 0.0;
-float bme_ext_humi = 0.0;
-float bme_int_pres = 0.0;
-float bme_int_temp = 0.0;
-float bme_int_humi = 0.0;
-
-// ***HTU21D
-//Create the HTU21D object
-//  https://github.com/enjoyneering/HTU21D
-#include <HTU21D.h>
-/*
-   HTU21D resolution:
-   HTU21D_RES_RH12_TEMP14 - RH: 12Bit, Temperature: 14Bit, by default
-   HTU21D_RES_RH8_TEMP12  - RH: 8Bit,  Temperature: 12Bit
-   HTU21D_RES_RH10_TEMP13 - RH: 10Bit, Temperature: 13Bit
-   HTU21D_RES_RH11_TEMP11 - RH: 11Bit, Temperature: 11Bit
- */
-HTU21D htu_ext(HTU21D_RES_RH12_TEMP14);
-boolean bHTU_ext = false;
-float htu_ext_temp = 0.0;
-float htu_ext_humi = 0.0;
-
-
-// ***DHT
-//https://github.com/adafruit/DHT-sensor-library
-#include <DHT.h>
-//#include <DHT_U.h>
-
-// ***Distance (length)
-boolean bDstLvl = false;
-int iDst = 0;
-unsigned long lDstOffTime; //Off,Update screens
-
-// Temp DS18B20
-//https://github.com/milesburton/Arduino-Temperature-Control-Library
-#include <OneWire.h>
-#include <DallasTemperature.h>
-// Создаем объект OneWire
-OneWire oneWire(PIN_DS18B20);
-// Создаем объект DallasTemperature для работы с сенсорами, передавая ему ссылку на объект для работы с 1-Wire.
-DallasTemperature dallasSensors(&oneWire);
-// Специальный объект для хранения адреса устройства
-DeviceAddress sensorAddress;
-boolean bDS = false;
-float ds_temp = 0.0;
-float ds_fix = -1.0;  //fix not correct data from sensor (C)
-
-
-//for out to screen
-float scr_ext_temp = 0.0;
-float scr_ext_humi = 0.0;
-float scr_pres = 0.0;
-float scr_int_temp = 0.0;
-float scr_int_humi = 0.0;
-float scr_mrh = 0.0;
-
-
-
-// ===INTERRUPTS==
-//setup hw interrupt\timer
-portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
-// on timer interrupt
-hw_timer_t * timer = NULL;
-volatile SemaphoreHandle_t timerSemaphore;
-portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
-
-/* 4del
-   // HW INTERRUPT service
-   void IRAM_ATTR tube_impulse() {      //subprocedure for capturing events from Geiger Kit
-   portENTER_CRITICAL_ISR(&mux);
-   counts++;
-   portEXIT_CRITICAL_ISR(&mux);
-   // Serial.print("'");                //4TEST!
-   }
- */
-// timer interrupt service
-void IRAM_ATTR onTimer() {
-        // Give a semaphore that we can check in the loop
-        xSemaphoreGiveFromISR(timerSemaphore, NULL);
-}
-//==**== End Config ==**==
-
-
-// ==== NTP===
-//print time to serial
-void printLocalTime()
+#pragma region timer
+// interrupt on timer
+static hw_timer_t *timer = NULL;
+volatile SemaphoreHandle_t pxTimerSemaphore;
+portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED; // to frame  critical portions
+static void IRAM_ATTR onTimerISR()
 {
-        struct tm timeinfo;
-        if (!getLocalTime(&timeinfo)) {
-                Serial.println("Failed to obtain time");
-                return;
-        }
-        Serial.println(&timeinfo);
-        // Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  // portENTER_CRITICAL_ISR(&timerMux);
+  //  Give a semaphore that we can check
+  xSemaphoreGiveFromISR(pxTimerSemaphore, NULL);
+  // portEXIT_CRITICAL_ISR(&timerMux);
 }
 
+static void vfnTimerTask(void *vpArg)
+{
+  static const char *TAG = "timer";
 
-// !!! добавить отключение прерываний при загрузке обновления !!
-void setup_OTGwserver() {
-        /*return index page which is stored in serverIndex */
-        wserver.on("/", HTTP_GET, []() {
-                wserver.sendHeader("Connection", "close");
-                wserver.send(200, "text/html", loginIndex);
-        });
-        wserver.on("/serverIndex", HTTP_GET, []() {
-                wserver.sendHeader("Connection", "close");
-                wserver.send(200, "text/html", serverIndex);
-        });
-        /*handling uploading firmware file */
-        wserver.on("/update", HTTP_POST, []() {
-                wserver.sendHeader("Connection", "close");
-                wserver.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-                ESP.restart();
-        }, []() {
-                HTTPUpload& upload = wserver.upload();
-                if (upload.status == UPLOAD_FILE_START) {
-                        Serial.printf("Update: %s\n", upload.filename.c_str());
-                        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
-                                Update.printError(Serial);
-                        }
-                } else if (upload.status == UPLOAD_FILE_WRITE) {
-                        /* flashing firmware to ESP*/
-                        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-                                Update.printError(Serial);
-                        }
-                } else if (upload.status == UPLOAD_FILE_END) {
-                        if (Update.end(true)) { //true to set the size to the current progress
-                                Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
-                        } else {
-                                Update.printError(Serial);
-                        }
-                }
-        });
-        wserver.begin();
+  while (1)
+  {
+    xSemaphoreTake(pxTimerSemaphore, portMAX_DELAY); //ожидаем семафор бесконечно долго (portMAX_DELAY)
+    ESP_LOGD(TAG, "Timer interrupt now");            //сюда попадаем только если есть семафор
+  }
+  ESP_LOGD(TAG, "Crash!");
+  vTaskDelete(NULL); // remove the task whene done
+}
+#pragma endregion
+
+#pragma region buttons
+static const char *TAG = "gpio_button";   // tag for logging
+static TaskHandle_t xButtonHandle = NULL; // task handle for interrupt callback
+static TaskHandle_t xPirHandle = NULL;    // task handle for interrupt callback
+
+static void IRAM_ATTR vfnButtonISR(void *vpArg)
+{
+  /***
+  Interrupt routine for handling GPIO interrupts.
+  vpArg is a pointer to the GPIO number.
+  ***/
+  uint32_t ulGPIONumber = (uint32_t)vpArg; // get the triggering GPIO
+
+  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 0)
+  {                                       // only when pressed
+    xTaskNotifyFromISR(xButtonHandle,     // task to notify
+                       ulGPIONumber - 37, // 32 bit integer for passing a value
+                       eSetBits,          // notify action (pass value in this case)
+                       NULL);             // wake a higher prio task (default behavior)
+  }
+  portYIELD_FROM_ISR(); // if notified task has higher prio then current interrupted task, set it to the head of the task queue
 }
 
+static void IRAM_ATTR vfnPirISR(void *vpArg)
+{
+  /***
+  Interrupt routine for handling GPIO interrupts.
+  vpArg is a pointer to the GPIO number.
+  ***/
+  uint32_t ulGPIONumber = (uint32_t)vpArg; // get the triggering GPIO
+
+  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 1)
+  {
+    xTaskNotifyFromISR(xPirHandle,        // task to notify
+                       ulGPIONumber - 36, // 32 bit integer for passing a value
+                       eSetBits,          // notify action (pass value in this case)
+                       NULL);             // wake a higher prio task (default behavior)
+  }
+  portYIELD_FROM_ISR(); // if notified task has higher prio then current interrupted task, set it to the head of the task queue
+}
+
+static void vfnButtonTask(void *vpArg)
+{
+  /***
+  Task for handling interrupts generated by button presses on the M5Stack
+  vpArg is a pointer to the passed arguments. Not used in this task.
+  ***/
+  uint32_t ulNotifiedValue = 0;
+  BaseType_t xResult;
+
+  while (1)
+  {
+    // m5.Lcd.setCursor(0, 0);
+    // m5.Lcd.printf("running on core %d", xPortGetCoreID());
+    // m5.Lcd.setCursor(0, 40);
+    xResult = xTaskNotifyWait(pdFALSE,          // don't clear bits on entry
+                              0xFFFFFFFF,       // clear all bits on exit
+                              &ulNotifiedValue, // stores the notified value
+                              portMAX_DELAY);   // wait forever
+    if (xResult == pdPASS)
+      ESP_LOGD(TAG, "HW button interrupt now");
+    { // if a notification is received
+      // m5.Lcd.printf("button %d", ulNotifiedValue);
+      switch (ulNotifiedValue)
+      { // to demonstrate the use of the switch statement
+      case 0:
+        ESP_LOGD(TAG, "==button 0==");
+
+        break;
+      case 1:
+        ESP_LOGD(TAG, "==button 1==");
+
+        getSensData(vSensVal); // считать данные
+
+        ScreenOn();
+        ESP_LOGD(TAG, "show data");
+        OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23); //показать данные
+        ScreenOff();
+
+        // resetDataFlag();   //убрать бит актуальности данных
+        break;
+      case 2:
+        ESP_LOGD(TAG, "==button 2==");
+
+        ScreenOn();
+        struct tm timeinf;
+        timeinf.tm_year = 120;
+        timeinf.tm_mon = 7;
+        timeinf.tm_mday = 12;
+        timeinf.tm_hour = 7;
+        timeinf.tm_min = 20;
+        timeinf.tm_sec = 30;
+        timeinf.tm_wday = 6;
+
+        ESP_LOGD(TAG, "show time");
+        ShowTime(timeinf);
+        ScreenOff();
+
+        break;
+      default:
+        ESP_LOGD(TAG, "This should not happen...");
+        break;
+      }
+    }
+  }
+  ESP_LOGD(TAG, "Crash!");
+  vTaskDelete(NULL); // remove the task whene done
+}
+
+static void vfnPirTask(void *vpArg)
+{
+  /***
+  Task for handling interrupts generated by button presses on the M5Stack
+  vpArg is a pointer to the passed arguments. Not used in this task.
+  ***/
+  uint32_t ulNotifiedValue = 0; //получаем, но не используем
+  BaseType_t xResult;
+
+  while (1)
+  {
+    xResult = xTaskNotifyWait(pdFALSE, 0xFFFFFFFF, &ulNotifiedValue, portMAX_DELAY);
+    if (xResult == pdPASS)
+    {
+      ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
+
+      ScreenOn();
+      ESP_LOGD(TAG, "show data");
+      OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23);
+      ScreenOff();
+    }
+  }
+  ESP_LOGD(TAG, "Crash!");
+  vTaskDelete(NULL); // remove the task whene done
+}
+
+#pragma endregion
 
 // ==WIFI ================
-void setup_wifi() {
+void setup_wifi()
+{
+  WiFi.disconnect();
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
 
-        delay(10);
-        // We start by connecting to a WiFi network
-        Serial.println();
-        Serial.print("Connecting to ");
-        Serial.println(ssid);
+  WiFi.begin(ssid, password);
 
-        WiFi.begin(ssid, password);
+  // если за 30*500 не подключился - перегрузить
+  int wifiCounter = 0;
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print("#");
+    if (++wifiCounter > 30)
+      ESP.restart();
+  }
 
-        // если за 30*500 не подключился - перегрузить
-        int wifiCounter = 0;
-        while (WiFi.status() != WL_CONNECTED)
-        {
-                delay(500);
-                Serial.print("#");
-                if (++wifiCounter > 30) ESP.restart();
-        }
+  randomSeed(micros());
 
-        randomSeed(micros());
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
 
-        Serial.println("");
-        Serial.println("WiFi connected");
-        Serial.println("IP address: ");
-        Serial.println(WiFi.localIP());
-
-        /*use mdns for host name resolution  http://hostname.local  */
-        if (!MDNS.begin(hostname)) {
-                Serial.println("Error setting up MDNS responder!");
-                while (1) {
-                        delay(1000);
-                }
-        }
-        Serial.println("mDNS responder started");
+  // use mdns for host name resolution  http://hostname.local
+  if (!MDNS.begin(hostname))
+  {
+    Serial.println("Error setting up MDNS responder!");
+    while (1)
+    {
+      delay(1000);
+    }
+  }
+  Serial.println("mDNS responder started");
 }
 
-
-
-// ==MQTT ==публикация
-void doPublish(String id, String value) {
-        int count_reconnect = 0;
-        // если не подключен, то подключаемся. Висит пока не подключится!!
-        if (!!!client.connected()) {
-                Serial.print("Reconnecting client to "); Serial.println(server);
-                while (!!!client.connect(clientId, authMethod, token, conntopic, 0, 0, "online")) {
-                        Serial.print("#");
-                        delay(500);
-                        count_reconnect++;
-                        // больше 10 попыток - что-то не так...
-                        if (count_reconnect > 10)  {
-                                Serial.println("problem with connecting to server, restarting");
-                                ESP.restart();
-                        }
-                }
-                Serial.print("connected with: "); Serial.print(clientId); Serial.print(authMethod); Serial.print(token);
-                Serial.println();
-        }
-
-        String topic = TOPIC;
-        String payload = value;
-        // String topic += id;
-        topic.concat(id);
-        Serial.print("Publishing on: "); Serial.println(topic);
-        Serial.print("Publishing payload: "); Serial.println(payload);
-        if (client.publish(topic.c_str(), (char*) payload.c_str())) {
-                Serial.println("Publish ok");
-        } else {
-                Serial.println("Publish failed");
-        }
+// ==== NTP===
+// print time to serial
+void printLocalTime()
+{
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo))
+  {
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo);
+  // Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
 }
 
-void GetDataFromSensors() {
-        if (bBME_int) {
-                bme_int.readSensor(); //get data
-                delay(10);
-                bme_int_temp = bme_int.getTemperature_C(); //read data
-                //  Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
-                bme_int_humi = bme_int.getHumidity(); //read data
-//    Serial.printf("Humidity BME280=%0.1f\n", bme_int_humi, "%");
-                bme_int_pres = (bme_int.getPressure_MB() * 0.7500638); //read data
-                //Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
-                //--  to screen
-                scr_pres = bme_int_pres;
-                scr_int_temp = bme_int_temp;
-                scr_int_humi = bme_int_humi;
-        }
+void setup()
+{
+  // m5.begin();
+  M5.begin(true, false, true, true);
+  Serial.begin(115200);
+  M5.Speaker.mute();
+  dacWrite(25, 0); // Speaker OFF
+  M5.Lcd.setBrightness(0);
+  // m5.Lcd.setTextSize(3);
 
-        if (bRad) {
-                MRh=radSens.getRadIntensyStatic();
-                scr_mrh=MRh;
-        }
+  ESP_LOGI(TAG, "===Starting...====");
 
-        if (bBME_ext) {
-                bme_ext.readSensor(); //get data
-                delay(10);
-                bme_ext_temp = bme_ext.getTemperature_C(); //read data
-//    Serial.printf("Temp BME280=%0.1f\n", bme_ext_temp, " *C");
-                bme_ext_humi = bme_ext.getHumidity(); //read data
-//    Serial.printf("Humidity BME280=%0.1f\n", bme_ext_humi, "%");
-                bme_ext_pres = (bme_ext.getPressure_MB() * 0.7500638); //read data
-//    Serial.printf("Pressure BME280 =%0.1f\n", bme_ext_pres, " mmHg");
-                //--  to screen
-                scr_ext_temp = bme_ext_temp;
-                scr_ext_humi = bme_ext_humi;
-        }
+  
+  // setup_wifi();
+  // printLocalTime();
 
-        if (bHTU_ext) {
-                htu_ext_temp = htu_ext.readTemperature(); //read data
-                //  Serial.printf("Temp HTU21D=%0.1f\n", htu_ext_temp, " *C");
-                htu_ext_humi = htu_ext.readCompensatedHumidity(); //read data
-//    Serial.printf("Humidity HTU21D=%0.1f\n", htu_ext_humi, "%");
-                //--  to screen
-                scr_ext_temp = htu_ext_temp;
-                scr_ext_humi = htu_ext_humi;
-        }
+#pragma region hw interupt cfg
+  ESP_LOGD(TAG, "set pin36-39");
+  // config pins for interrupt
 
-        if (bDS) {
-                dallasSensors.requestTemperatures(); // get data
-                ds_temp = dallasSensors.getTempC(sensorAddress); //read data
-                ds_temp += ds_fix; //fix
-                //  Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
-                //--  to screen
-                scr_ext_temp = ds_temp;
-        }
+  gpio_config_t xButtonConfig;
+  xButtonConfig.pin_bit_mask = GPIO_SEL_37 | GPIO_SEL_38 | GPIO_SEL_39;
+  xButtonConfig.mode = GPIO_MODE_INPUT;
+  xButtonConfig.pull_up_en = GPIO_PULLUP_DISABLE;
+  xButtonConfig.pull_down_en = GPIO_PULLDOWN_ENABLE;
+  xButtonConfig.intr_type = GPIO_INTR_ANYEDGE; // both rising and falling edge
+  gpio_config(&xButtonConfig);
+
+  // Buttons
+  ESP_LOGD(TAG, "cfg hw interrupt 4 buttons");
+  xTaskCreatePinnedToCore(vfnButtonTask,  // function with task's code
+                          "Button task",  // name
+                          2048,           // stack size
+                          (void *)NULL,   // input parameters
+                          10,             // priority
+                          &xButtonHandle, // task handle (for callback from ISR)
+                          1);             // core to run on
+  gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+  gpio_isr_handler_add(GPIO_NUM_39,          // GPIO to attach to
+                       vfnButtonISR,         // ISR to call
+                       (void *)GPIO_NUM_39); // Parameters to pass
+  gpio_isr_handler_add(GPIO_NUM_38, vfnButtonISR, (void *)GPIO_NUM_38);
+  gpio_isr_handler_add(GPIO_NUM_37, vfnButtonISR, (void *)GPIO_NUM_37);
+
+  //
+  gpio_config_t xSensorConfig;
+  xSensorConfig.pin_bit_mask = GPIO_SEL_36;
+  xSensorConfig.mode = GPIO_MODE_INPUT;
+  xSensorConfig.pull_up_en = GPIO_PULLUP_DISABLE;
+  xSensorConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  xSensorConfig.intr_type = GPIO_INTR_POSEDGE; // rising edge
+  gpio_config(&xSensorConfig);
+
+  // Sensor Pin
+  ESP_LOGD(TAG, "cfg hw interrupt 4 sensor");
+  xTaskCreatePinnedToCore(vfnPirTask,        // function with task's code
+                          "PIR sensor task", // name
+                          2048,              // stack size
+                          (void *)NULL,      // input parameters
+                          10,                // priority
+                          &xPirHandle,       // task handle (for callback from ISR)
+                          1);                // core to run on
+  gpio_isr_handler_add(GPIO_NUM_36, vfnPirISR, (void *)GPIO_NUM_36);
+//
+#pragma endregion
+#pragma region timer interupt cfg
+  //
+  ESP_LOGD(TAG, "set interrupt on timer");
+  // Create semaphore to inform us when the timer has fired
+  pxTimerSemaphore = xSemaphoreCreateBinary();
+  ESP_LOGD(TAG, "timerBegin");
+  timer = timerBegin(
+      1,     // the Timer number from 0 to 3
+      8000,  //  the value of the time divider. Timer has a 16-bit Prescaler (from 2 to 65536)
+      true); // true to count on the rising edge, false to count on the falling edge
+  // Attach onTimer function to our timer.
+  ESP_LOGD(TAG, "timerAttachInterrupt");
+  timerAttachInterrupt(
+      timer,       // is the pointer to the Timer we have just created
+      &onTimerISR, // the function that will be executed each time the Timer alarm is triggered
+      false);      // true-по фронту (edge) / false-по уровню (level) [ ?? EDGE timer interrupt is not supported!]
+
+  // Set alarm to call onTimer function every  second ( 80 000 000Gz / 8000 * 10000 ).
+  // 100000 - 10s, 600000 - 1m(60s)  6000000 - 10m  36000000 - 1h(60m)
+  ESP_LOGD(TAG, "timerAlarmWrite");
+  timerAlarmWrite(
+      timer,  // the pointer to the Timer created previously
+      600000, // the frequency of triggering of the alarm in ticks
+      true);  // autoreload, Repeat the alarm, true to reset the alarm automatically after each trigger.
+  // timerAlarmWrite(timer, LOG_PERIOD, true);
+  // delayMicroseconds(0);
+  // delay(1);
+  vTaskDelay(2);
+  // Start an alarm
+  ESP_LOGD(TAG, "timerAlarmEnable");
+  timerAlarmEnable(timer);
+  vTaskDelay(2);
+  // delay(1);
+
+  TaskHandle_t task2Handle = NULL;
+  xTaskCreate(
+      vfnTimerTask,  //* Function that implements the task.
+      "Timer task",  //* Text name for the task.
+      2048,          //* Stack size in words, not bytes.
+      (void *)NULL,  //* Parameter passed into the task.
+      10,            //* Priority at which the task is created.
+      &task2Handle); //* Used to pass out the created task's handle.
+#pragma endregion
+
+  // start sensors init
+  ESP_LOGI(TAG, "start sensors init");
+  startSens();
 }
 
-
-
-
-
-
-//============
-void setup()  {
-
-        M5.begin(true, true, true, true); //( LCDEnable,  SDEnable,  SerialEnable,  I2CEnable)
-        M5.Speaker.mute();
-        dacWrite(25, 0); // Speaker OFF
-//   M5.Lcd.setBrightness(0);
-
-        // sound amplifer off
-        // ledcDetachPin (SPEAKER_PIN);
-        // pinMode (SPEAKER_PIN, INPUT);
-
-        // Start the ethernet client, open up serial port for debugging
-        Serial.begin(115200);
-        pinMode(LED_BUILTIN, OUTPUT);
-        digitalWrite(LED_BUILTIN, LOW);
-
-        Serial.println("set wifi");
-        setup_wifi();
-        Serial.println("set OTG");
-        setup_OTGwserver();
-
-        //--init timer
-        Serial.println("set timers");
-
-        // Create semaphore to inform us when the timer has fired
-        timerSemaphore = xSemaphoreCreateBinary();
-        // Use 1st timer of 4 (counted from zero).
-        // Set 80 divider for prescaler (see ESP32 Technical Reference Manual for more
-        // info).
-        timer = timerBegin(0, 8000, true); //divider over 8000 is not worked correctly
-        // Attach onTimer function to our timer.
-        timerAttachInterrupt(timer, &onTimer, true);
-        // Set alarm to call onTimer function every  second ( 80 000 000Gz / 8000 * 10000 ).
-        // Repeat the alarm (third parameter)
-        // timerAlarmWrite(timer, 10000, true);
-        //100000 - 10s, 600000 - 1m(60s)  6000000 - 10m  36000000 - 1h(60m)
-
-        timerAlarmWrite(timer, LOG_PERIOD, true);
-        // Start an alarm
-        timerAlarmEnable(timer);
-        //--
-
-        // NTP
-        //init and get the time
-        long gmtOffset_sec = 0;
-        gmtOffset_sec = TIMEZONE * 3600;
-        configTime(gmtOffset_sec, daylightOffset_sec, ntpServerName);
-        printLocalTime();
-
-
-        // init sensors
-        //***BME
-        if (!bme_ext.begin()) {
-                Serial.println("*------> Could not find a valid BME280 ext sensor, check wiring! ***!! ");
-                bBME_ext = false;
-        } else {
-                Serial.println("+++> BME280 ext sensor finded&activated");
-                bBME_ext = true;
-        }
-        bme_ext.setTempCal(0); //correcting data, need calibrate this!!!   *************
-
-        if (!bme_int.begin()) {
-                Serial.println("*------> Could not find a valid BME280 int sensor, check wiring!  ***!! ");
-                bBME_int = false;
-        } else {
-                Serial.println("+++> BME280 int sensor finded&activated");
-                bBME_int = true;
-        }
-        bme_int.setTempCal(0); //correcting data, need calibrate this!!!   *************
-
-        //***HTU21D
-        if (!htu_ext.begin()) {
-                Serial.println("*------> Could not find a valid HTU21D ext sensor, check wiring! ***!! ");
-                bHTU_ext = false;
-        } else {
-                Serial.println("+++> HTU21D ext sensor finded&activated");
-                bHTU_ext = true;
-        }
-        //***RadSens
-        if (!radSens.radSens_init()) {
-                Serial.println("*------> Could not find a RadSens!  ***!! ");
-                bRad = false;
-        } else {
-                Serial.println("+++> RadSens  sensor finded&activated");
-                bRad = true;
-                uint8_t sensorChipId = radSens.getChipId(); /*Returns chip id, default value: 0x7D.*/
-                Serial.print("Chip id: 0x");
-                Serial.println(sensorChipId, HEX);
-
-                uint8_t firmWareVer = radSens.getFirmwareVersion(); /*Returns firmware version.*/
-                Serial.print("Firmware version: ");
-                Serial.println(firmWareVer);
-
-                radSens.setSensitivity(105);
-                radSens.setHVGeneratorState(true);
-        }
-
-
-        // ***dallas
-        dallasSensors.begin();
-
-        // Поиск устройства:
-        // Ищем адрес устройства по порядку (индекс задается вторым параметром функции)
-        if (!dallasSensors.getAddress(sensorAddress, 0)) {
-                Serial.println("*------> Could not find Dallas sensor ***");
-                bDS = false;
-        } else {
-                Serial.println("+++> Dallas sensor finded");
-                bDS = true;
-        }
-
-        // Устанавливаем разрешение датчика в 12 бит (мы могли бы установить другие значения, точность уменьшится, но скорость получения данных увеличится
-        dallasSensors.setResolution(sensorAddress, 12);
-
-        Serial.print("Разрешение датчика: ");
-        Serial.print(dallasSensors.getResolution(sensorAddress), DEC);
-        Serial.println();
-
-        // ----
-
-
-
-        //distance
-        //  pinMode(distPin, INPUT);
-        // ln swnsor
-        pinMode(lnPin, INPUT);
-        lDstOffTime = micros();
-
-        // *** show on start
-        ScreenOn();
-        bScrOn = true;
-
-        if (getLocalTime(&timeinfo)) {
-                ShowTime(timeinfo);
-        }
-        else
-        {
-                Serial.println("Failed to obtain time");
-                //    return;
-        }
-        delay(2000);
-
-        GetDataFromSensors();
-
-        //scr_mrh = 88.8;
-        OutToScr( scr_ext_temp, scr_ext_humi, scr_pres, scr_int_temp, scr_int_humi, scr_mrh );
-
-        // OutToScr( ds_temp, bme_ext_humi, bme_ext_pres, bme_int_temp, bme_int_humi , 0.0 );
-        OffScrTime = micros() + 2000000;
-}
-
-
-void loop()  {
-        //web OTG
-        wserver.handleClient();
-
-        // If Timer has fired
-        if (xSemaphoreTake(timerSemaphore, 0) == pdTRUE) {
-
-                Serial.println();
-                Serial.println("-----------------------");
-                printLocalTime();
-
-
-                // собираем данные с  датчиков и отправляем...
-
-                //-----
-                GetDataFromSensors();
-
-                // отравляем данные на сервер...
-                // пока отправка вкл. led
-                digitalWrite(LED_BUILTIN, HIGH);
-                Serial.print("Send to server - ");
-                printLocalTime();
-
-                // send uRgh from geiger
-                if (bRad) {
-                        doPublish("R0", String(MRh, 1));
-                }
-
-                if (bBME_int) {
-                        if (bme_int_temp > -50 and bme_int_temp < 50 )  {
-                                doPublish("T2", String(bme_int_temp, 1));
-                        }
-                        if (bme_int_humi > 5 and bme_int_humi < 101 )  {
-                                doPublish("H2", String(bme_int_humi, 1));
-                        }
-                        if (bme_int_pres > 600 and bme_int_pres < 900 )  {
-                                doPublish("P2", String(bme_int_pres, 1));
-                        }
-                }
-
-                if (bBME_ext) {
-                        if (bme_ext_temp > -50 and bme_ext_temp < 50 )  {
-                                doPublish("T1", String(bme_ext_temp, 1));
-                        }
-                        if (bme_ext_humi > 5 and bme_ext_humi < 101 )  {
-                                doPublish("H1", String(bme_ext_humi, 1));
-                        }
-                        if (bme_ext_pres > 600 and bme_ext_pres < 900 )  {
-                                doPublish("P1", String(bme_ext_pres, 1));
-                        }
-                }
-
-                if (bDS) {
-                        if (ds_temp > -50 and ds_temp < 50 )  {
-                                doPublish("T0", String(ds_temp, 1));
-                        }
-                }
-
-                if (bHTU_ext) {
-                        if (htu_ext_temp > -50 and htu_ext_temp < 50 )  {
-                                doPublish("T1", String(htu_ext_temp, 1));
-                        }
-                        if (htu_ext_humi > 5 and htu_ext_humi < 101 )  {
-                                doPublish("H1", String(htu_ext_humi, 1));
-                        }
-                }
-
-
-                // LED OFF
-                digitalWrite(LED_BUILTIN, LOW);
-        }
-
-        // distatce sensor
-        iDst = analogRead(lnPin);
-
-        if ( lDstOffTime > micros()) { //passage through 0
-                lDstOffTime = micros();
-        }
-
-        if ((iDst > 3500) and !bDstLvl and (lDstOffTime < micros()) ) {
-                bDstLvl = true;
-        }
-        // Serial.println(bDstLvl);
-        //  Serial.println(iDst);
-
-
-        // =Buttons=
-        if (M5.BtnA.wasPressed()  or bDstLvl )  {
-                Serial.print(" _Pressed kb A - ");
-                printLocalTime();
-
-                ScreenOn();
-                bScrOn = true;
-
-                GetDataFromSensors();
-                Serial.println(scr_mrh);
-
-                OutToScr( scr_ext_temp, scr_ext_humi, scr_pres, scr_int_temp, scr_int_humi, scr_mrh );
-
-                OffScrTime = micros() + 5000000;
-                lDstOffTime = OffScrTime + 1000000;
-        }
-
-        if (M5.BtnB.wasPressed())
-        {
-                Serial.print(" _Pressed kb B - ");
-                printLocalTime();
-
-                ScreenOn();
-                bScrOn = true;
-
-                if (getLocalTime(&timeinfo)) {
-                        ShowTime(timeinfo);
-                        OffScrTime = micros() + 5000000;
-                }
-                else
-                {
-                        Serial.println("Failed to obtain time");
-                        //    return;
-                }
-        }
-
-
-        //off screens
-        if  (bScrOn) {
-                if (micros() >= OffScrTime) {
-                        ScreenOff();
-                        bScrOn = false;
-                }
-        }
-
-        bDstLvl = false;
-
-        M5.update();
-
-}
-// ================
+void loop(void) {}
