@@ -207,8 +207,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 vMSVh = sRadSens.getRadIntensyStatic(); // vMRh ?
                 ESP_LOGD(TAG, "Rad - %d", vMRh);
 
-                // vSensVal[0].value = vMSVh;
-                vSensVal[0].value = 20.0; //****TEST
+                vSensVal[0].value = vMSVh;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[0].actual = true;
         }
@@ -216,8 +215,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
         if (bBME_i)
         {
                 sBME_i.readSensor(); // get data
-                // delay(10);
-                vTaskDelay(10);
+                 vTaskDelay(10); // delay(10);
                 vBME_i_temp = sBME_i.getTemperature_C(); // read data
                 //  Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
                 vBME_i_humi = sBME_i.getHumidity(); // read data
@@ -226,12 +224,9 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
                 ESP_LOGD(TAG, "BME_int Temp=%d, Humi=%d, Pres=%d", vBME_i_temp, vBME_i_humi, vBME_i_pres);
 
-                // vSensVal[1].value = vBME_i_temp;
-                // vSensVal[2].value = vBME_i_humi;
-                // vSensVal[3].value = vBME_i_pres;
-                vSensVal[1].value = 21.1; //****TEST
-                vSensVal[2].value = 22.2; //****TEST
-                vSensVal[3].value = 23.3; //****TEST
+                 vSensVal[1].value = vBME_i_temp;
+                 vSensVal[2].value = vBME_i_humi;
+                 vSensVal[3].value = vBME_i_pres;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[1].actual = true;
                 vSensVal[2].actual = true;
@@ -240,8 +235,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
         if (bBME_e)
         {
                 sBME_e.readSensor(); // get data
-                // delay(10);
-                vTaskDelay(10);
+                
+                vTaskDelay(10);         // delay(10);
                 vBME_e_temp = sBME_e.getTemperature_C(); // read data
                 //  Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
                 vBME_e_humi = sBME_e.getHumidity(); // read data
@@ -250,12 +245,9 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
                 ESP_LOGD(TAG, "BME_ext Temp=%d, Humi=%d, Pres=%d", vBME_e_temp, vBME_e_humi, vBME_e_pres);
 
-                // vSensVal[4].value = vBME_e_temp;
-                // vSensVal[5].value = vBME_e_humi;
-                // vSensVal[6].value = vBME_e_pres;
-                vSensVal[4].value = 24.4; //****TEST
-                vSensVal[5].value = 25.5; //****TEST
-                vSensVal[6].value = 26.6; //****TEST
+                 vSensVal[4].value = vBME_e_temp;
+                 vSensVal[5].value = vBME_e_humi;
+                 vSensVal[6].value = vBME_e_pres;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[4].actual = true;
                 vSensVal[5].actual = true;
@@ -270,10 +262,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Humidity HTU21D=%0.1f %%\n", htu_ext_humi);
                 ESP_LOGD(TAG, "HTU_ext Temp=%d, Humi=%d", vHTU_e_temp, vHTU_e_humi);
 
-                // vSensVal[7].value = vHTU_e_temp;
-                // vSensVal[8].value = vHTU_e_humi;
-                vSensVal[7].value = 27.7; //****TEST
-                vSensVal[8].value = 28.8; //****TEST
+                 vSensVal[7].value = vHTU_e_temp;
+                 vSensVal[8].value = vHTU_e_humi;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[7].actual = true;
                 vSensVal[8].actual = true;
@@ -287,10 +277,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Humidity HTU21D=%0.1f %%\n", htu_ext_humi);
                 ESP_LOGD(TAG, "SHT_ext Temp=%d, Humi=%d", vSHT_e_temp, vSHT_e_humi);
 
-                // vSensVal[9].value = vSHT_e_temp;
-                // vSensVal[10].value = vSHT_e_humi;
-                vSensVal[9].value = 27.7;  //****TEST
-                vSensVal[10].value = 28.8; //****TEST
+                 vSensVal[9].value = vSHT_e_temp;
+                 vSensVal[10].value = vSHT_e_humi;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[9].actual = true;
                 vSensVal[10].actual = true;
@@ -304,8 +292,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 //  Serial.printf("Temp DS=%0.1f\n", ds_temp, " *C");
                 ESP_LOGD(TAG, "DS  Temp=%d", vDS);
 
-                // vSensVal[11].value = vDS;
-                vSensVal[11].value = 29.9; //****TEST
+                vSensVal[11].value = vDS;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[11].actual = true;
         }
@@ -336,4 +323,39 @@ void getSensData(stSens *vSensVal) // read data from sensors
         vSensVal[10].actual = true;
         vSensVal[11].actual = true;
         //*******************
+}
+
+extern void heatSens() //прогрев датчиков для правильной влажности. (Может стоит проверить на температуру-влажность?)
+{
+        //#HTU21
+        if (bHTU_e)
+        {
+                sHTU_e.setHeater(true);
+        }
+
+        //#SHT31
+        if (bSHT_e)
+        {
+                sSHT_e.heatOn();
+        }
+
+        vTaskDelay(2000);
+
+        if (bHTU_e)
+        {
+                sHTU_e.setHeater(false);
+        }
+        if (bSHT_e)
+        {
+                sSHT_e.heatOff();
+        }
+}
+
+
+void resetActualSensVal(stSens *vSensVal) 
+{
+  for (int i = 0; i < 12; i++)
+  {
+    vSensVal[i].actual=false;
+  }
 }

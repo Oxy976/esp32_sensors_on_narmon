@@ -24,5 +24,7 @@
 // ****
 extern void startSens();
 extern void getSensData(stSens *vSensVal); //получить данные
+extern void heatSens();
+extern void resetActualSensVal(stSens *vSensVal); 
 
 #endif

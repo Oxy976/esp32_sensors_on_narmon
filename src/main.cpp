@@ -34,6 +34,8 @@ stSens vSensVal[12]; //  к-во параметров  с датчиков
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include <ESPmDNS.h>
+WiFiServer wserv(80);
+boolean bConnWiFi = false;
 
 #include "OutToScr.h"
 
@@ -72,6 +74,13 @@ static void vfnTimerTask(void *vpArg)
   {
     xSemaphoreTake(pxTimerSemaphore, portMAX_DELAY); //ожидаем семафор бесконечно долго (portMAX_DELAY)
     ESP_LOGD(TAG, "Timer interrupt now");            //сюда попадаем только если есть семафор
+
+    //отправить данные на narodmon (семафор для таска?)
+    // sendToNarod();
+    //запусить прогрев датчиков (семафор для таска?)
+    heatSens();
+    // сбросить актуальность данных
+    resetActualSensVal(vSensVal);
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL); // remove the task whene done
@@ -145,40 +154,32 @@ static void vfnButtonTask(void *vpArg)
       { // to demonstrate the use of the switch statement
       case 0:
         ESP_LOGD(TAG, "==button 0==");
-
-        showSensVal();
-
+        showSensVal(); // TEST!
         break;
       case 1:
         ESP_LOGD(TAG, "==button 1==");
-
         getSensData(vSensVal); // считать данные
-
         ScreenOn();
         ESP_LOGD(TAG, "show data");
-        // OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23); //показать данные
         OutToScr(vSensVal); //показать данные
         ScreenOff();
-
-        // resetDataFlag();   //убрать бит актуальности данных
+        // сбросить актуальность данных
+        resetActualSensVal(vSensVal);
         break;
       case 2:
         ESP_LOGD(TAG, "==button 2==");
-
         ScreenOn();
-        struct tm timeinf;
+        struct tm timeinf; // TEST******-->
         timeinf.tm_year = 120;
         timeinf.tm_mon = 7;
         timeinf.tm_mday = 12;
         timeinf.tm_hour = 7;
         timeinf.tm_min = 20;
         timeinf.tm_sec = 30;
-        timeinf.tm_wday = 6;
-
+        timeinf.tm_wday = 6; //************  --<
         ESP_LOGD(TAG, "show time");
         ShowTime(timeinf);
         ScreenOff();
-
         break;
       default:
         ESP_LOGD(TAG, "This should not happen...");
@@ -206,11 +207,13 @@ static void vfnPirTask(void *vpArg)
     {
       ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
 
+      getSensData(vSensVal); // считать данные
       ScreenOn();
       ESP_LOGD(TAG, "show data");
-      // OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23);
       OutToScr(vSensVal);
       ScreenOff();
+      // сбросить актуальность данных
+      resetActualSensVal(vSensVal);
     }
   }
   ESP_LOGD(TAG, "Crash!");
@@ -222,12 +225,14 @@ static void vfnPirTask(void *vpArg)
 // ==WIFI ================
 void setup_wifi()
 {
+  static const char *TAG = "wifi";
   WiFi.disconnect();
-  delay(10);
+  vTaskDelay(10); // delay(10);
   // We start by connecting to a WiFi network
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  // Serial.println();
+  // Serial.print("Connecting to ");
+  // Serial.println(ssid);
+  ESP_LOGI(TAG, "Connecting to %d", ssid);
 
   WiFi.begin(ssid, password);
 
@@ -235,29 +240,45 @@ void setup_wifi()
   int wifiCounter = 0;
   while (WiFi.status() != WL_CONNECTED)
   {
-    delay(500);
+    vTaskDelay(500); // delay(500);
     Serial.print("#");
     if (++wifiCounter > 30)
-      ESP.restart();
-  }
-
-  randomSeed(micros());
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  // use mdns for host name resolution  http://hostname.local
-  if (!MDNS.begin(hostname))
-  {
-    Serial.println("Error setting up MDNS responder!");
-    while (1)
     {
-      delay(1000);
+      // ESP.restart();    //заменить на метку доступности
+      bConnWiFi = false;
+      return;
     }
   }
-  Serial.println("mDNS responder started");
+
+  randomSeed(micros()); //  ????
+
+  bConnWiFi = true;
+  // Serial.println("");
+  // Serial.println("WiFi connected");
+  // Serial.println("IP address: ");
+  // Serial.println(WiFi.localIP());
+  ESP_LOGI(TAG, "WiFi connected. IP address: %d", WiFi.localIP());
+
+  // use mDNS for host name resolution  https://espressif.github.io/esp-protocols/mdns/en/index.html
+  if (!MDNS.begin("M5"))
+  {
+    // Serial.println("Error setting up MDNS responder!");
+    ESP_LOGD(TAG, "Error setting up MDNS responder!");
+    while (1)
+    {
+      vTaskDelay(1000); // delay(1000);
+    }
+  }
+  // Serial.println("mDNS responder started");
+  ESP_LOGI(TAG, "mDNS responder started");
+
+  // Start TCP (HTTP) server
+  wserv.begin();
+  // Serial.println("TCP server started");
+  ESP_LOGI(TAG, "HTTP server started");
+
+  // Add service to MDNS-SD
+  MDNS.addService("http", "tcp", 80);
 }
 
 // ==== NTP===
@@ -276,7 +297,6 @@ void printLocalTime()
 
 void setup()
 {
-  // m5.begin();
   M5.begin(true, false, true, true);
   Serial.begin(115200);
   M5.Speaker.mute();
@@ -286,8 +306,16 @@ void setup()
 
   ESP_LOGI(TAG, "===Starting...====");
 
-  // setup_wifi();
-  // printLocalTime();
+  //setup_wifi();
+  if (bConnWiFi)
+  {
+    // init ntp
+    long gmtOffset_sec = 0;
+    gmtOffset_sec = TIMEZONE * 3600;
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServerName);
+    // print time
+    printLocalTime();
+  }
 
 #pragma region hw interupt cfg
   ESP_LOGD(TAG, "set pin36-39");
