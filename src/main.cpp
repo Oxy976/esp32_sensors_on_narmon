@@ -27,7 +27,7 @@
 
 #include "settings.h"
 #include "strct.h"
-stSens vSensVal[9]; // 10 параметров снимается с датчиков
+stSens vSensVal[12]; //  к-во параметров  с датчиков
 
 #include "sensors.h"
 
@@ -38,6 +38,18 @@ stSens vSensVal[9]; // 10 параметров снимается с датчи�
 #include "OutToScr.h"
 
 #define ESP_INTR_FLAG_DEFAULT 0
+
+void showSensVal() // oly for TEST!
+{
+  for (int i = 0; i < 12; i++)
+  {
+    Serial.print(i);
+    Serial.print(" ");
+    Serial.print(vSensVal[i].value);
+    Serial.print(" ");
+    Serial.println(vSensVal[i].actual);
+  }
+}
 
 #pragma region timer
 // interrupt on timer
@@ -134,6 +146,8 @@ static void vfnButtonTask(void *vpArg)
       case 0:
         ESP_LOGD(TAG, "==button 0==");
 
+        showSensVal();
+
         break;
       case 1:
         ESP_LOGD(TAG, "==button 1==");
@@ -142,7 +156,8 @@ static void vfnButtonTask(void *vpArg)
 
         ScreenOn();
         ESP_LOGD(TAG, "show data");
-        OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23); //показать данные
+        // OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23); //показать данные
+        OutToScr(vSensVal); //показать данные
         ScreenOff();
 
         // resetDataFlag();   //убрать бит актуальности данных
@@ -193,7 +208,8 @@ static void vfnPirTask(void *vpArg)
 
       ScreenOn();
       ESP_LOGD(TAG, "show data");
-      OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23);
+      // OutToScr(8.80, 55.5, 766.6, 22.2, 77.7, 0.23);
+      OutToScr(vSensVal);
       ScreenOff();
     }
   }
@@ -270,7 +286,6 @@ void setup()
 
   ESP_LOGI(TAG, "===Starting...====");
 
-  
   // setup_wifi();
   // printLocalTime();
 

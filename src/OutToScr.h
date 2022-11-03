@@ -1,7 +1,8 @@
 #ifndef OutToScr_h
 #define OutToScr_h
+#include "strct.h"
 
-extern void OutToScr( float b1, float  sr1, float  sr2, float  sd1, float  sd2, float  sd3 );
+extern void OutToScr( stSens *vSensVal );
 extern void ScreenOff();
 extern void ScreenOn();
 extern void ShowTime(struct tm timeinfo);

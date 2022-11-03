@@ -9,9 +9,6 @@ const char* password = "xxx";
 // LED
 const int LED_BUILTIN = 15; //Onboard LED Pin (M5 fire)
 
-//wemos esp32
-// LED
-//const int LED_BUILTIN = 1; //Onboard LED Pin ***! change this for M5!
 
 // Time settings
 const char* ntpServerName = "pool.ntp.org";

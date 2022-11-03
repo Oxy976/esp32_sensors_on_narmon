@@ -1,6 +1,7 @@
 #define USE_M5_FONT_CREATOR //работа с внешним шрифтом
 #include <Arduino.h>
 #include <M5Stack.h>
+#include "strct.h"
 // https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 // тут используется исправленный шрифт с новыми символами и русскими буквами. Возможность вывода в UTF8 не используется. Вывод посимвольно.
 
@@ -9,8 +10,6 @@
 #define F_RR16 &RobotoR16pt8b
 #include "fonts/RobotoR32pt8b.h"
 #define F_RR32 &RobotoR32pt8b
-
-
 
 int sym_dnum[] = {143, 144, 145, 146, 147, 148, 149, 150, 151, 152}; //!!only for font RobotoR !!
 int sym_gradC = 159;                                                 //!!only for font RobotoR !!
@@ -97,19 +96,122 @@ String RgToStr(float r)
   return strR;
 }
 
-void OutToScr(float b1, float sr1, float sr2, float sd1, float sd2, float sd3)
+void OutToScr(stSens *vSensVal)
 {
+  float b1, sr1, sr2, sd1, sd2, sd3;
+  // b1
+  if (vSensVal[11].actual) // DS
+  {
+    b1 = vSensVal[11].value;
+  }
+  else
+  {
+    if (vSensVal[9].actual) // SHT31
+    {
+      b1 = vSensVal[9].value;
+    }
+    else
+    {
+      if (vSensVal[7].actual) // HTU21
+      {
+        b1 = vSensVal[7].value;
+      }
+      else
+      {
+        if (vSensVal[4].actual) // BME_e_temp
+        {
+          b1 = vSensVal[4].value;
+        }
+        else
+        {
+          b1 = 888.8;
+        }
+      }
+    }
+  }
+  // sr1  правый столбец влажность снаружи
+  if (vSensVal[10].actual) // vSHT_e_humi
+  {
+    sr1 = vSensVal[10].value;
+  }
+  else
+  {
+    if (vSensVal[8].actual) // vHTU_e_humi
+    {
+      sr1 = vSensVal[8].value;
+    }
+    else
+    {
+      if (vSensVal[5].actual) // vBME_e_humi
+      {
+        sr1 = vSensVal[5].value;
+      }
+      else
+      {
+        sr1 = 0.0;
+      }
+    }
+  }
+
+  // sr2 правый столбец давление
+  if (vSensVal[3].actual) // vBME_i_pres
+  {
+    sr2 = vSensVal[3].value;
+  }
+  else
+  {
+    if (vSensVal[6].actual) // vBME_e_pres
+    {
+      sr2 = vSensVal[6].value;
+    }
+    else
+    {
+      sr2 = 0.0;
+    }
+  }
+
+  // sd1 нижняя строка температура внутри
+  if (vSensVal[1].actual) // vBME_i_temp
+  {
+    sd1 = vSensVal[1].value;
+  }
+  else
+  {
+    sd1 = 888.0;
+  }
+
+ // sd2 нижняя строка влажность внутри
+  if (vSensVal[2].actual) // vBME_i_humi
+  {
+    sd2 = vSensVal[2].value;
+  }
+  else
+  {
+    sd2 = 0.0;
+  }
+
+ // sd3 нижняя строка радиация
+  if (vSensVal[0].actual) // RAD
+  {
+    sd3 = vSensVal[0].value;
+  }
+  else
+  {
+    sd3 = 0.0;
+  }
+ 
+
   OutStrToScr(TempToStr(b1), HumToStr(sr1), PressToStr(sr2), TempToStr(sd1), HumToStr(sd2), RgToStr(sd3));
 }
 
 void ScreenOff()
 {
-  //delay(2000);
+  // delay(2000);
   vTaskDelay(2000);
   for (int i = 255; i >= 0; i--)
   {
     M5.Lcd.setBrightness(i);
-    //delay(10);
+    // delay(10);
     vTaskDelay(10);
   }
   M5.Lcd.fillScreen(TFT_BLACK);
@@ -123,7 +225,7 @@ void ScreenOn()
   for (int i = 0; i <= 255; i++)
   {
     M5.Lcd.setBrightness(i);
-    //delay(2);
+    // delay(2);
     vTaskDelay(2);
   }
 }
@@ -189,4 +291,3 @@ void ShowTime(struct tm timeinfo)
     break;
   }
 }
-
