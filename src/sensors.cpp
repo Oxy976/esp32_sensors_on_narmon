@@ -8,7 +8,8 @@ static int numChSens; // number of activ sensor channels
 
 // ***Geiger
 // RadSens
-CG_RadSens sRadSens(RS_DEFAULT_I2C_ADDRESS); // Constructor of the class ClimateGuard_RadSens1v2,
+// CG_RadSens sRadSens(RS_DEFAULT_I2C_ADDRESS); // Constructor of the class ClimateGuard_RadSens1v2,
+ClimateGuard_RadSens1v2 sRadSens(RS_DEFAULT_I2C_ADDRESS);
 
 boolean bRAD = false; // b - датчик найден и инициализирован корректно
 float vMSVh = 0.0;    // v значене с датчика
@@ -82,11 +83,18 @@ void startSens() // init sensors
         static const char *TAG = "sensors_init";
         ESP_LOGD(TAG, "Start init sensors");
 
-        // ESP_LOGD(TAG, "Wire begin");  //i2c init. а надо-ли, в м5 есть...
+        // ESP_LOGD(TAG, "I2C begin"); // i2c init. а надо-ли, в м5 есть...
         // Wire.begin();
 
         // ***RadSens
-        if (!sRadSens.init())
+        // while (!sRadSens.init()) /*Initializates function and sensor connection. Returns false if the sensor is not connected to the I2C bus.*/
+        //{
+        //        Serial.println("Sensor wiring error!");
+        //        delay(1000);
+        //}
+
+        if (!sRadSens.radSens_init())
+        // if (!sRadSens.init())
         {
                 ESP_LOGD(TAG, "Could not find a RadSens!");
                 // Serial.println("*------> Could not find a RadSens!  ***!! ");
@@ -94,21 +102,46 @@ void startSens() // init sensors
         }
         else
         {
-                ESP_LOGI(TAG, "RadSens  sensor finded&activated");
-                // Serial.println("+++> RadSens  sensor finded&activated");
+                vTaskDelay(100);
+                ESP_LOGI(TAG, "RadSens  sensor finded ***");
                 bRAD = true;
-                uint8_t sensorChipId = sRadSens.getChipId(); // *Returns chip id, default value: 0x7D.
-                ESP_LOGI(TAG, "Chip id:  %d", sensorChipId);
-                // Serial.print("Chip id: 0x");
-                // Serial.println(sensorChipId, HEX);
-
-                uint8_t firmWareVer = sRadSens.getFirmwareVersion(); // *Returns firmware version.
-                ESP_LOGI(TAG, "Firmware version:  %d", firmWareVer);
-                // Serial.print("Firmware version: ");
-                // Serial.println(firmWareVer);
-
+                ESP_LOGI(TAG, "Chip id:  %X", sRadSens.getChipId());
+                ESP_LOGI(TAG, "Firmware version:  %d", sRadSens.getFirmwareVersion());
+                vTaskDelay(10);
+                ESP_LOGI(TAG, "sensitivity:  %d", sRadSens.getSensitivity());
+                vTaskDelay(10);
+                ESP_LOGI(TAG, "HV generator state:  %d", sRadSens.getHVGeneratorState());
+                vTaskDelay(10);
+                sRadSens.setSensitivity(55);
+                vTaskDelay(50);
+                ESP_LOGI(TAG, "sensitivity:  %d", sRadSens.getSensitivity());
                 sRadSens.setSensitivity(105);
+                vTaskDelay(50);
                 sRadSens.setHVGeneratorState(true);
+                vTaskDelay(50);
+                ESP_LOGI(TAG, "sensitivity:  %d", sRadSens.getSensitivity());
+                ESP_LOGI(TAG, "HV generator state:  %d", sRadSens.getHVGeneratorState());
+
+                /*
+                 uint16_t sensitivity = sRadSens.getSensitivity();
+
+                 Serial.print("\t getSensitivity(): ");
+                 Serial.println(sensitivity);
+                 Serial.println("\t setSensitivity(55)... ");
+
+                 sRadSens.setSensitivity(55); /
+
+
+                 sensitivity = sRadSens.getSensitivity();
+                 Serial.print("\t getSensitivity(): ");
+                 Serial.println(sensitivity);
+                 Serial.println("\t setSensitivity(105)... ");
+
+                 sRadSens.setSensitivity(105);
+
+                 Serial.print("\t getSensitivity(): ");
+                 Serial.println(sRadSens.getSensitivity());
+                 */
         }
 
         // ***BME
@@ -201,21 +234,29 @@ void startSens() // init sensors
 void getSensData(stSens *vSensVal) // read data from sensors
 {
         // stSens st;
-        static const char *TAG = "sensors_init";
+        static const char *TAG = "sensors_values";
         if (bRAD)
         {
-                vMSVh = sRadSens.getRadIntensyStatic(); // vMRh ?
-                ESP_LOGD(TAG, "Rad - %d", vMRh);
+                int vNumPulse = sRadSens.getNumberOfPulses();
+                ESP_LOGD(TAG, "Rad Pulses: %d ", vNumPulse);
+                ESP_LOGD(TAG, "Rad Dyanmic: %f mRh", sRadSens.getRadIntensyDyanmic());
+                // ESP_LOGD(TAG, "Rad Dyanmic: %d mRh", sRadSens.getRadIntensyDynamic());
 
-                vSensVal[0].value = vMSVh;
+                vMRh = sRadSens.getRadIntensyStatic();
+                ESP_LOGD(TAG, "Rad Static: %f mRh", vMRh);
+
+                vSensVal[0].value = vMRh;
                 //контроль корректности данных. ДОПОЛНИТЬ!
-                vSensVal[0].actual = true;
+                if (vNumPulse > 200)
+                {
+                        vSensVal[0].actual = true;
+                }
         }
 
         if (bBME_i)
         {
-                sBME_i.readSensor(); // get data
-                 vTaskDelay(10); // delay(10);
+                sBME_i.readSensor();                     // get data
+                vTaskDelay(10);                          // delay(10);
                 vBME_i_temp = sBME_i.getTemperature_C(); // read data
                 //  Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
                 vBME_i_humi = sBME_i.getHumidity(); // read data
@@ -224,9 +265,9 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
                 ESP_LOGD(TAG, "BME_int Temp=%d, Humi=%d, Pres=%d", vBME_i_temp, vBME_i_humi, vBME_i_pres);
 
-                 vSensVal[1].value = vBME_i_temp;
-                 vSensVal[2].value = vBME_i_humi;
-                 vSensVal[3].value = vBME_i_pres;
+                vSensVal[1].value = vBME_i_temp;
+                vSensVal[2].value = vBME_i_humi;
+                vSensVal[3].value = vBME_i_pres;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[1].actual = true;
                 vSensVal[2].actual = true;
@@ -235,8 +276,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
         if (bBME_e)
         {
                 sBME_e.readSensor(); // get data
-                
-                vTaskDelay(10);         // delay(10);
+
+                vTaskDelay(10);                          // delay(10);
                 vBME_e_temp = sBME_e.getTemperature_C(); // read data
                 //  Serial.printf("Temp BME280=%0.1f\n", bme_int_temp, " *C");
                 vBME_e_humi = sBME_e.getHumidity(); // read data
@@ -245,9 +286,9 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Pressure BME280 =%0.1f\n", bme_int_pres, " mmHg");
                 ESP_LOGD(TAG, "BME_ext Temp=%d, Humi=%d, Pres=%d", vBME_e_temp, vBME_e_humi, vBME_e_pres);
 
-                 vSensVal[4].value = vBME_e_temp;
-                 vSensVal[5].value = vBME_e_humi;
-                 vSensVal[6].value = vBME_e_pres;
+                vSensVal[4].value = vBME_e_temp;
+                vSensVal[5].value = vBME_e_humi;
+                vSensVal[6].value = vBME_e_pres;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[4].actual = true;
                 vSensVal[5].actual = true;
@@ -262,8 +303,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Humidity HTU21D=%0.1f %%\n", htu_ext_humi);
                 ESP_LOGD(TAG, "HTU_ext Temp=%d, Humi=%d", vHTU_e_temp, vHTU_e_humi);
 
-                 vSensVal[7].value = vHTU_e_temp;
-                 vSensVal[8].value = vHTU_e_humi;
+                vSensVal[7].value = vHTU_e_temp;
+                vSensVal[8].value = vHTU_e_humi;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[7].actual = true;
                 vSensVal[8].actual = true;
@@ -277,8 +318,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // Serial.printf("Humidity HTU21D=%0.1f %%\n", htu_ext_humi);
                 ESP_LOGD(TAG, "SHT_ext Temp=%d, Humi=%d", vSHT_e_temp, vSHT_e_humi);
 
-                 vSensVal[9].value = vSHT_e_temp;
-                 vSensVal[10].value = vSHT_e_humi;
+                vSensVal[9].value = vSHT_e_temp;
+                vSensVal[10].value = vSHT_e_humi;
                 //контроль корректности данных. ДОПОЛНИТЬ!
                 vSensVal[9].actual = true;
                 vSensVal[10].actual = true;
@@ -297,6 +338,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 vSensVal[11].actual = true;
         }
         //****TEST ***
+        /*
         vSensVal[0].value = 30.0;  //****TEST
         vSensVal[1].value = 31.0;  //****TEST
         vSensVal[2].value = 32.0;  //****TEST
@@ -322,6 +364,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
         vSensVal[9].actual = true;
         vSensVal[10].actual = true;
         vSensVal[11].actual = true;
+        */
         //*******************
 }
 
@@ -351,11 +394,10 @@ extern void heatSens() //прогрев датчиков для правильн
         }
 }
 
-
-void resetActualSensVal(stSens *vSensVal) 
+void resetActualSensVal(stSens *vSensVal)
 {
-  for (int i = 0; i < 12; i++)
-  {
-    vSensVal[i].actual=false;
-  }
+        for (int i = 0; i < 12; i++)
+        {
+                vSensVal[i].actual = false;
+        }
 }
