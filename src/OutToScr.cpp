@@ -100,27 +100,27 @@ void OutToScr(stSens *vSensVal)
 {
   float b1, sr1, sr2, sd1, sd2, sd3;
   // b1
-  if (vSensVal[11].actual) // DS
+  if (vSensVal[13].actual) // DS extDS_Temp
   {
-    b1 = vSensVal[11].value;
+    b1 = vSensVal[13].value;
   }
   else
   {
-    if (vSensVal[9].actual) // SHT31
+    if (vSensVal[11].actual) // SHT31 extSHT_Temp
     {
-      b1 = vSensVal[9].value;
+      b1 = vSensVal[11].value;
     }
     else
     {
-      if (vSensVal[7].actual) // HTU21
+      if (vSensVal[9].actual) // HTU21 extHTU_Temp"
       {
-        b1 = vSensVal[7].value;
+        b1 = vSensVal[9].value;
       }
       else
       {
-        if (vSensVal[4].actual) // BME_e_temp
+        if (vSensVal[3].actual) // BME_e_temp
         {
-          b1 = vSensVal[4].value;
+          b1 = vSensVal[3].value;
         }
         else
         {
@@ -136,15 +136,15 @@ void OutToScr(stSens *vSensVal)
   }
   else
   {
-    if (vSensVal[8].actual) // vHTU_e_humi
+    if (vSensVal[12].actual) // vHTU_e_humi
     {
-      sr1 = vSensVal[8].value;
+      sr1 = vSensVal[12].value;
     }
     else
     {
-      if (vSensVal[5].actual) // vBME_e_humi
+      if (vSensVal[4].actual) // vBME_e_humi
       {
-        sr1 = vSensVal[5].value;
+        sr1 = vSensVal[4].value;
       }
       else
       {
@@ -154,15 +154,15 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sr2 правый столбец давление
-  if (vSensVal[3].actual) // vBME_i_pres
+  if (vSensVal[8].actual) // vBME_i_pres
   {
-    sr2 = vSensVal[3].value;
+    sr2 = vSensVal[8].value;
   }
   else
   {
-    if (vSensVal[6].actual) // vBME_e_pres
+    if (vSensVal[5].actual) // vBME_e_pres
     {
-      sr2 = vSensVal[6].value;
+      sr2 = vSensVal[5].value;
     }
     else
     {
@@ -171,9 +171,9 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sd1 нижняя строка температура внутри
-  if (vSensVal[1].actual) // vBME_i_temp
+  if (vSensVal[6].actual) // vBME_i_temp
   {
-    sd1 = vSensVal[1].value;
+    sd1 = vSensVal[6].value;
   }
   else
   {
@@ -181,9 +181,9 @@ void OutToScr(stSens *vSensVal)
   }
 
  // sd2 нижняя строка влажность внутри
-  if (vSensVal[2].actual) // vBME_i_humi
+  if (vSensVal[7].actual) // vBME_i_humi
   {
-    sd2 = vSensVal[2].value;
+    sd2 = vSensVal[7].value;
   }
   else
   {

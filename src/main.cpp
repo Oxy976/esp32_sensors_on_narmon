@@ -25,7 +25,7 @@
 
 #include "settings.h"
 #include "strct.h"
-stSens vSensVal[12]; //  к-во параметров  с датчиков
+stSens vSensVal[SensUnit];
 
 #include "sensors.h"
 
@@ -35,6 +35,10 @@ stSens vSensVal[12]; //  к-во параметров  с датчиков
 WiFiServer wserv(80);
 boolean bConnWiFi = false;
 struct tm timeinfo;
+
+#include <PubSubClient.h>
+WiFiClient wifiClient;
+PubSubClient mqttClient(mqttServer, 1883, wifiClient);
 
 #include "OutToScr.h"
 // 4web server
@@ -48,13 +52,90 @@ const long timeoutTime = 2000;
 
 void showSensVal() // oly for TEST!
 {
-  for (int i = 0; i < 12; i++)
+  for (int i = 0; i < SensUnit; i++)
   {
     Serial.print(i);
     Serial.print(" ");
+    Serial.print(vSensVal[i].name);
+    Serial.print(" ");
     Serial.print(vSensVal[i].value);
     Serial.print(" ");
+    Serial.print(vSensVal[i].unit);
+    Serial.print(" ");
     Serial.println(vSensVal[i].actual);
+  }
+}
+
+// print time to serial
+void printLocalTime()
+{
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo))
+  {
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo);
+  // Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+}
+
+// ==MQTT ==публикация
+void MqttPublish()
+{
+  static const char *TAG = "mqtt";
+
+  int count_reconnect = 0;
+  // если не подключен, то подключаемся. Висит пока не подключится!!
+  if (!!!mqttClient.connected())
+  {
+    // Serial.print("Reconnecting client to ");
+    // Serial.println(mqttServer);
+    ESP_LOGI(TAG, "Reconnecting client to %s", mqttServer);
+    while (!!!mqttClient.connect(clientId, authMethod, token, conntopic, 0, 0, "online"))
+    {
+      // Serial.print("#");
+      vTaskDelay(500); // delay(500);
+      count_reconnect++;
+      // больше 10 попыток - что-то не так...
+      if (count_reconnect > 10)
+      {
+        // Serial.println("problem with connecting to server, restarting");
+        ESP_LOGI(TAG, "problem with connecting to server, restarting");
+        ESP.restart();
+      }
+    }
+    ESP_LOGI(TAG, "Connecting to %s with: id %s, auth %s, token %s", mqttServer, clientId, authMethod, token);
+    // Serial.print("connected with: ");
+    // Serial.print(clientId);
+    // Serial.print(authMethod);
+    // Serial.print(token);
+    // Serial.println();
+  }
+
+  
+  for (int i = 0; i < SensUnit; i++)
+  {
+    if (vSensVal[i].actual & (vSensVal[i].mqttId.length() > 1))
+    {
+      String topic = TOPIC;
+      String payload = String(vSensVal[i].value, 1); //значение строкой
+      topic.concat(vSensVal[i].mqttId);              // topic+id
+      //ESP_LOGD(TAG, "Publishing on: %s payload:  %s", topic, payload);
+      // Serial.print("Publishing on: ");
+      // Serial.println(topic);
+      // Serial.print("Publishing payload: ");
+      // Serial.println(payload);
+      if (mqttClient.publish(topic.c_str(), (char *)payload.c_str()))
+      {
+        ESP_LOGD(TAG, "Publishing Ok on: %s payload:  %s", topic.c_str(), payload);
+        // Serial.println("Publish ok");
+      }
+      else
+      {
+        ESP_LOGD(TAG, "** Publish FAILED on: %s payload:  %s", topic.c_str(), payload);
+        // Serial.println("Publish failed");
+      }
+    }
   }
 }
 
@@ -74,19 +155,18 @@ static void IRAM_ATTR onTimerISR()
 static void vfnTimerTask(void *vpArg)
 {
   static const char *TAG = "timer";
-
   while (1)
   {
     xSemaphoreTake(pxTimerSemaphore, portMAX_DELAY); //ожидаем семафор бесконечно долго (portMAX_DELAY)
     ESP_LOGD(TAG, "Timer interrupt now");            //сюда попадаем только если есть семафор
 
+    printLocalTime();
     getSensData(vSensVal); // считать данные
-    //отправить данные на narodmon (семафор для таска?)
-    // sendToNarod();
+    //отправить данные на narodmon (семафор для таска?) если wifi подключен
+    if (bConnWiFi) MqttPublish();
     //запусить прогрев датчиков (семафор для таска?)
     heatSens();
-    // сбросить актуальность данных
-    resetActualSensVal(vSensVal);
+    //
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL); // remove the task whene done
@@ -164,25 +244,17 @@ static void vfnButtonTask(void *vpArg)
         break;
       case 1:
         ESP_LOGD(TAG, "==button 1==");
-        getSensData(vSensVal); // считать данные
+        getSensData(vSensVal); // считать данные ** а надо-ли? ***
         ScreenOn();
         ESP_LOGD(TAG, "show data");
         OutToScr(vSensVal); //показать данные
         ScreenOff();
         // сбросить актуальность данных
-        resetActualSensVal(vSensVal);
+        // resetActualSensVal(vSensVal);
         break;
       case 2:
         ESP_LOGD(TAG, "==button 2==");
         ScreenOn();
-        // struct tm timeinfo; // TEST******-->
-        // timeinf.tm_year = 120;
-        // timeinf.tm_mon = 7;
-        // timeinf.tm_mday = 12;
-        // timeinf.tm_hour = 7;
-        // timeinf.tm_min = 20;
-        // timeinf.tm_sec = 30;
-        // timeinf.tm_wday = 6; //************  --<
         ESP_LOGD(TAG, "show time");
         if (getLocalTime(&timeinfo))
         {
@@ -217,13 +289,13 @@ static void vfnPirTask(void *vpArg)
     {
       ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
 
-      getSensData(vSensVal); // считать данные
+      getSensData(vSensVal); // считать данные  *** а надо-ли? ***
       ScreenOn();
       ESP_LOGD(TAG, "show data");
       OutToScr(vSensVal);
       ScreenOff();
       // сбросить актуальность данных
-      resetActualSensVal(vSensVal);
+      // resetActualSensVal(vSensVal);
     }
   }
   ESP_LOGD(TAG, "Crash!");
@@ -291,19 +363,6 @@ void setup_wifi()
   MDNS.addService("http", "tcp", 80);
 }
 
-// ==== NTP===
-// print time to serial
-void printLocalTime()
-{
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo))
-  {
-    Serial.println("Failed to obtain time");
-    return;
-  }
-  Serial.println(&timeinfo);
-  // Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-}
 
 void vfnWifiSrv(void *vpArg)
 {
@@ -346,10 +405,12 @@ void vfnWifiSrv(void *vpArg)
               client.println("<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial;}");
               client.println("table { border-collapse: collapse; width:35%; margin-left:auto; margin-right:auto; }");
               client.println("th { padding: 12px; background-color: #0043af; color: white; }");
-              client.println("tr { border: 1px solid #ddd; padding: 12px; }");
+              client.println("tr { border: 1px solid #C0C0C0; padding: 12px; }");
               client.println("tr:hover { background-color: #bcbcbc; }");
               client.println("td { border: none; padding: 12px; }");
-              client.println(".sensor { color: black; font-weight: bold; background-color: #bcbcbc; padding: 1px; }");
+              //              client.println(".sensor { color: black; font-weight: bold; background-color: #e3e3e3; padding: 1px; }");
+              client.println(".actual { color: black; font-weight: bold; background-color: #e3e3e3; padding: 1px; }");
+              client.println(".not_actual { color: #DCDCDC; font-weight: normal; background-color: white; padding: 1px; }");
 
               // Заголовок веб-страницы
               client.println("</style></head><body><h1>ESP32 sensors</h1>");
@@ -360,18 +421,28 @@ void vfnWifiSrv(void *vpArg)
                 client.println("</br>");
               }
               // client.println("<table><tr><th>MEASUREMENT</th><th>VALUE</th></tr>");
-              client.println("<table><tr><th>#</th><th>VALUE</th><th>Actual</th></tr>");
-              for (int i = 0; i < 12; i++)
+              client.println("<table><tr><th>#</th><th>Name</th><th>VALUE</th><th>Unit</th></tr>");
+              for (int i = 0; i < SensUnit; i++)
               {
-                client.println("<tr><td>");
+                // client.println("<tr>");
+                if (vSensVal[i].actual)
+                {
+                  client.println("<tr class=\"actual\"><td>");
+                }
+                else
+                {
+                  client.println("<tr class=\"not_actual\"><td>");
+                }
                 client.print(i);
-                client.println("</td><td><span class=\"sensor\">");
-                client.print(vSensVal[i].value);
-                client.println("</span></td><td>");
-                client.println(vSensVal[i].actual);
-                client.println("</td></tr>");
+                client.println("</td><td>");
+                client.println(vSensVal[i].name);
+                client.println("</td><td>");
+                client.println(vSensVal[i].value);
+                client.println("</td><td>");
+                client.println(vSensVal[i].unit);
+                client.println("</td></span></tr>");
               }
-                client.println("</body></html>");
+              client.println("</body></html>");
 
               // Ответ HTTP также заканчивается пустой строкой
               client.println();
@@ -495,7 +566,7 @@ void setup()
   ESP_LOGD(TAG, "timerAlarmWrite");
   timerAlarmWrite(
       timer,  // the pointer to the Timer created previously
-      600000, // the frequency of triggering of the alarm in ticks
+      6000000, // the frequency of triggering of the alarm in ticks
       true);  // autoreload, Repeat the alarm, true to reset the alarm automatically after each trigger.
   // timerAlarmWrite(timer, LOG_PERIOD, true);
   // delayMicroseconds(0);
@@ -522,7 +593,7 @@ void setup()
 
   // start sensors init
   ESP_LOGI(TAG, "start sensors init");
-  startSens();
+  startSens(vSensVal);
 }
 
 void loop(void) {}

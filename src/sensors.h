@@ -23,7 +23,7 @@
 #include "DallasTemperature.h" // Temp DS18B20   https://github.com/milesburton/Arduino-Temperature-Control-Library
 
 // ****
-extern void startSens();
+extern void startSens(stSens *vSensVal);
 extern void getSensData(stSens *vSensVal); //получить данные
 extern void heatSens();
 extern void resetActualSensVal(stSens *vSensVal); 
