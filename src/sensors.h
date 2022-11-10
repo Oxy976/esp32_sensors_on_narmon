@@ -7,8 +7,6 @@
 #include <M5Stack.h>
 #include "strct.h"
 
-//#include "sens_sett.h"
-
 // I2C
 //Адрес на шине I2C для SHT21/HDC1080/HDC2080/HTU21D/Si7021 совпадает
 #include <Wire.h>                 // i2c lib

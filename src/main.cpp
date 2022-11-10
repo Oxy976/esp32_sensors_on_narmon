@@ -1,8 +1,9 @@
-/*
- *таски:
- *  - получить данные с датчиков (?? а надо-ли таском??)
- *  - вывести на экран
- *  - отправить на сервер
+/*  план.
+ * таски:
+ *  - получить данные с датчиков /функцией. возможно потом будет таском, но надо будет прописать мьютекс/
+ *  - вывести на экран данные - vfnvShowData
+ *  - вывести время - vfnShowTime
+ *  - отправить на сервер mqtt /функцией, т.к. вызывается из таска 1 раз/
  *  - обработка кнопок - vfnButtonTask
  *  - обработка датчика движения vfnPirTask
  *прерывания
@@ -41,6 +42,11 @@ WiFiClient wifiClient;
 PubSubClient mqttClient(mqttServer, 1883, wifiClient);
 
 #include "OutToScr.h"
+
+// Set alarm to call onTimer function every  second ( 80 000 000Gz / 8000 * 10000 ).
+// 100000 - 10s, 600000 - 1m(60s)  6000000 - 10m  36000000 - 1h(60m)
+#define TIMER_PERIOD 6000000
+
 // 4web server
 unsigned long currentTime = millis();
 // Переменная для сохранения времени подключения пользователя
@@ -50,7 +56,7 @@ const long timeoutTime = 2000;
 
 #define ESP_INTR_FLAG_DEFAULT 0
 
-void showSensVal() // oly for TEST!
+void showSensVal() //  for TEST!
 {
   for (int i = 0; i < SensUnit; i++)
   {
@@ -70,13 +76,18 @@ void showSensVal() // oly for TEST!
 void printLocalTime()
 {
   struct tm timeinfo;
-  if (!getLocalTime(&timeinfo))
+  static const char *TAG = "LocalTime";
+  char tbuffer[80];
+  if (getLocalTime(&timeinfo))
   {
-    Serial.println("Failed to obtain time");
-    return;
+    strftime(tbuffer, 80, " %d %b %Y   %I:%M:%S", &timeinfo);
+    ESP_LOGI(TAG, " %s", tbuffer);
   }
-  Serial.println(&timeinfo);
-  // Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+  else
+  {
+    ESP_LOGD(TAG, "** Failed to obtain time **");
+    // return;
+  }
 }
 
 // ==MQTT ==публикация
@@ -85,58 +96,70 @@ void MqttPublish()
   static const char *TAG = "mqtt";
 
   int count_reconnect = 0;
-  // если не подключен, то подключаемся. Висит пока не подключится!!
+  // если не подключен, то подключаемся.
   if (!!!mqttClient.connected())
   {
-    // Serial.print("Reconnecting client to ");
-    // Serial.println(mqttServer);
     ESP_LOGI(TAG, "Reconnecting client to %s", mqttServer);
     while (!!!mqttClient.connect(clientId, authMethod, token, conntopic, 0, 0, "online"))
     {
-      // Serial.print("#");
-      vTaskDelay(500); // delay(500);
+      vTaskDelay(500);
       count_reconnect++;
       // больше 10 попыток - что-то не так...
       if (count_reconnect > 10)
       {
-        // Serial.println("problem with connecting to server, restarting");
         ESP_LOGI(TAG, "problem with connecting to server, restarting");
         ESP.restart();
       }
     }
     ESP_LOGI(TAG, "Connecting to %s with: id %s, auth %s, token %s", mqttServer, clientId, authMethod, token);
-    // Serial.print("connected with: ");
-    // Serial.print(clientId);
-    // Serial.print(authMethod);
-    // Serial.print(token);
-    // Serial.println();
   }
 
-  
   for (int i = 0; i < SensUnit; i++)
   {
     if (vSensVal[i].actual & (vSensVal[i].mqttId.length() > 1))
     {
       String topic = TOPIC;
-      String payload = String(vSensVal[i].value, 1); //значение строкой
-      topic.concat(vSensVal[i].mqttId);              // topic+id
-      //ESP_LOGD(TAG, "Publishing on: %s payload:  %s", topic, payload);
-      // Serial.print("Publishing on: ");
-      // Serial.println(topic);
-      // Serial.print("Publishing payload: ");
-      // Serial.println(payload);
-      if (mqttClient.publish(topic.c_str(), (char *)payload.c_str()))
+      String payload = String(vSensVal[i].value, 1);                  //значение строкой
+      topic.concat(vSensVal[i].mqttId);                               // topic+id
+      if (mqttClient.publish(topic.c_str(), (char *)payload.c_str())) // если опубликовано
       {
         ESP_LOGD(TAG, "Publishing Ok on: %s payload:  %s", topic.c_str(), payload);
-        // Serial.println("Publish ok");
       }
       else
       {
         ESP_LOGD(TAG, "** Publish FAILED on: %s payload:  %s", topic.c_str(), payload);
-        // Serial.println("Publish failed");
       }
     }
   }
+}
+
+volatile SemaphoreHandle_t pxShowDataSemaphore;
+void vfnvShowData(void *vpArg)
+{
+  static const char *TAG = "taskShowData";
+  while (1)
+  {
+    xSemaphoreTake(pxShowDataSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
+    ESP_LOGD(TAG, "Task show data");
+    getSensData(vSensVal); // получить данные
+    OutToScr(vSensVal);    //показать данные
+  }
+  ESP_LOGD(TAG, "Crash!");
+  vTaskDelete(NULL);
+}
+
+volatile SemaphoreHandle_t pxShowTimeSemaphore;
+void vfnShowTime(void *vpArg)
+{
+  static const char *TAG = "taskShowTime";
+  while (1)
+  {
+    xSemaphoreTake(pxShowTimeSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
+    ESP_LOGD(TAG, "Task show time");
+    ShowTime();
+  }
+  ESP_LOGD(TAG, "Crash!");
+  vTaskDelete(NULL);
 }
 
 #pragma region timer
@@ -146,10 +169,7 @@ volatile SemaphoreHandle_t pxTimerSemaphore;
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED; // to frame  critical portions
 static void IRAM_ATTR onTimerISR()
 {
-  // portENTER_CRITICAL_ISR(&timerMux);
-  //  Give a semaphore that we can check
   xSemaphoreGiveFromISR(pxTimerSemaphore, NULL);
-  // portEXIT_CRITICAL_ISR(&timerMux);
 }
 
 static void vfnTimerTask(void *vpArg)
@@ -163,10 +183,10 @@ static void vfnTimerTask(void *vpArg)
     printLocalTime();
     getSensData(vSensVal); // считать данные
     //отправить данные на narodmon (семафор для таска?) если wifi подключен
-    if (bConnWiFi) MqttPublish();
+    if (bConnWiFi)
+      MqttPublish();
     //запусить прогрев датчиков (семафор для таска?)
     heatSens();
-    //
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL); // remove the task whene done
@@ -185,7 +205,7 @@ static void IRAM_ATTR vfnButtonISR(void *vpArg)
   vpArg is a pointer to the GPIO number.
   ***/
   uint32_t ulGPIONumber = (uint32_t)vpArg; // get the triggering GPIO
-
+                                           // ESP_LOGD(TAG, "ISR GPIO %d is %d",ulGPIONumber,gpio_get_level((gpio_num_t)ulGPIONumber)); // ****** TEST *** УБРАТЬ!****
   if (gpio_get_level((gpio_num_t)ulGPIONumber) == 0)
   {                                       // only when pressed
     xTaskNotifyFromISR(xButtonHandle,     // task to notify
@@ -216,52 +236,34 @@ static void IRAM_ATTR vfnPirISR(void *vpArg)
 
 static void vfnButtonTask(void *vpArg)
 {
-  /***
-  Task for handling interrupts generated by button presses on the M5Stack
-  vpArg is a pointer to the passed arguments. Not used in this task.
-  ***/
   uint32_t ulNotifiedValue = 0;
   BaseType_t xResult;
 
   while (1)
   {
-    // m5.Lcd.setCursor(0, 0);
-    // m5.Lcd.printf("running on core %d", xPortGetCoreID());
-    // m5.Lcd.setCursor(0, 40);
     xResult = xTaskNotifyWait(pdFALSE,          // don't clear bits on entry
                               0xFFFFFFFF,       // clear all bits on exit
                               &ulNotifiedValue, // stores the notified value
                               portMAX_DELAY);   // wait forever
     if (xResult == pdPASS)
       ESP_LOGD(TAG, "HW button interrupt now");
-    { // if a notification is received
-      // m5.Lcd.printf("button %d", ulNotifiedValue);
+    {
       switch (ulNotifiedValue)
-      { // to demonstrate the use of the switch statement
+      {
       case 0:
         ESP_LOGD(TAG, "==button 0==");
-        showSensVal(); // TEST!
+        ESP_LOGD(TAG, "give semaphore time");
+        xSemaphoreGive(pxShowTimeSemaphore);
         break;
       case 1:
         ESP_LOGD(TAG, "==button 1==");
-        getSensData(vSensVal); // считать данные ** а надо-ли? ***
-        ScreenOn();
-        ESP_LOGD(TAG, "show data");
-        OutToScr(vSensVal); //показать данные
-        ScreenOff();
-        // сбросить актуальность данных
-        // resetActualSensVal(vSensVal);
+        ESP_LOGD(TAG, "give semaphore data");
+        xSemaphoreGive(pxShowDataSemaphore);
         break;
       case 2:
         ESP_LOGD(TAG, "==button 2==");
-        ScreenOn();
-        ESP_LOGD(TAG, "show time");
-        if (getLocalTime(&timeinfo))
-        {
-          ShowTime(timeinfo);
-        }
-
-        ScreenOff();
+        printLocalTime();
+        showSensVal(); // TEST!
         break;
       default:
         ESP_LOGD(TAG, "This should not happen...");
@@ -275,10 +277,6 @@ static void vfnButtonTask(void *vpArg)
 
 static void vfnPirTask(void *vpArg)
 {
-  /***
-  Task for handling interrupts generated by button presses on the M5Stack
-  vpArg is a pointer to the passed arguments. Not used in this task.
-  ***/
   uint32_t ulNotifiedValue = 0; //получаем, но не используем
   BaseType_t xResult;
 
@@ -288,14 +286,8 @@ static void vfnPirTask(void *vpArg)
     if (xResult == pdPASS)
     {
       ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
-
-      getSensData(vSensVal); // считать данные  *** а надо-ли? ***
-      ScreenOn();
-      ESP_LOGD(TAG, "show data");
-      OutToScr(vSensVal);
-      ScreenOff();
-      // сбросить актуальность данных
-      // resetActualSensVal(vSensVal);
+      ESP_LOGD(TAG, "give semaphore data");
+      xSemaphoreGive(pxShowDataSemaphore);
     }
   }
   ESP_LOGD(TAG, "Crash!");
@@ -308,26 +300,26 @@ static void vfnPirTask(void *vpArg)
 void setup_wifi()
 {
   static const char *TAG = "wifi";
+
+  WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   vTaskDelay(10); // delay(10);
-  // We start by connecting to a WiFi network
-  // Serial.println();
-  // Serial.print("Connecting to ");
-  // Serial.println(ssid);
   ESP_LOGI(TAG, "Connecting to %d", ssid);
 
   WiFi.begin(ssid, password);
 
-  // если за 30*500 не подключился - перегрузить
+  // если за 5*500 не подключился - прекратить
   int wifiCounter = 0;
   while (WiFi.status() != WL_CONNECTED)
   {
     vTaskDelay(500); // delay(500);
     Serial.print("#");
-    if (++wifiCounter > 30)
+    if (++wifiCounter > 5)
     {
-      // ESP.restart();    //заменить на метку доступности
+      // ESP.restart();
+      ESP_LOGI(TAG, "** WiFi not connected! **");
       bConnWiFi = false;
+      WiFi.disconnect();
       return;
     }
   }
@@ -335,34 +327,26 @@ void setup_wifi()
   randomSeed(micros()); //  ????
 
   bConnWiFi = true;
-  // Serial.println("");
-  // Serial.println("WiFi connected");
-  // Serial.println("IP address: ");
-  // Serial.println(WiFi.localIP());
   ESP_LOGI(TAG, "WiFi connected. IP address: %d", WiFi.localIP());
 
   // use mDNS for host name resolution  https://espressif.github.io/esp-protocols/mdns/en/index.html
   if (!MDNS.begin(hostname))
   {
-    // Serial.println("Error setting up MDNS responder!");
     ESP_LOGD(TAG, "Error setting up MDNS responder!");
     while (1)
     {
       vTaskDelay(1000); // delay(1000);
     }
   }
-  // Serial.println("mDNS responder started");
   ESP_LOGI(TAG, "mDNS responder started");
 
   // Start TCP (HTTP) server
   wserv.begin();
-  // Serial.println("TCP server started");
   ESP_LOGI(TAG, "HTTP server started");
 
   // Add service to MDNS-SD
   MDNS.addService("http", "tcp", 80);
 }
-
 
 void vfnWifiSrv(void *vpArg)
 {
@@ -420,11 +404,9 @@ void vfnWifiSrv(void *vpArg)
                 client.println(&timeinfo);
                 client.println("</br>");
               }
-              // client.println("<table><tr><th>MEASUREMENT</th><th>VALUE</th></tr>");
               client.println("<table><tr><th>#</th><th>Name</th><th>VALUE</th><th>Unit</th></tr>");
               for (int i = 0; i < SensUnit; i++)
               {
-                // client.println("<tr>");
                 if (vSensVal[i].actual)
                 {
                   client.println("<tr class=\"actual\"><td>");
@@ -499,16 +481,18 @@ void setup()
   ESP_LOGD(TAG, "set pin36-39");
   // config pins for interrupt
 
+  // GPIO34-39 can only be set as input mode and do not have software-enabled pullup or pulldown functions.
   gpio_config_t xButtonConfig;
   xButtonConfig.pin_bit_mask = GPIO_SEL_37 | GPIO_SEL_38 | GPIO_SEL_39;
   xButtonConfig.mode = GPIO_MODE_INPUT;
-  xButtonConfig.pull_up_en = GPIO_PULLUP_DISABLE;
-  xButtonConfig.pull_down_en = GPIO_PULLDOWN_ENABLE;
-  xButtonConfig.intr_type = GPIO_INTR_ANYEDGE; // both rising and falling edge
+  xButtonConfig.pull_up_en = GPIO_PULLUP_ENABLE;
+  xButtonConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  // xButtonConfig.intr_type = GPIO_INTR_ANYEDGE; // both rising and falling edge
+  xButtonConfig.intr_type = GPIO_INTR_NEGEDGE; // on low level
   gpio_config(&xButtonConfig);
 
   // Buttons
-  ESP_LOGD(TAG, "cfg hw interrupt 4 buttons");
+  ESP_LOGD(TAG, "cfg hw interrupt for buttons");
   xTaskCreatePinnedToCore(vfnButtonTask,  // function with task's code
                           "Button task",  // name
                           2048,           // stack size
@@ -533,7 +517,7 @@ void setup()
   gpio_config(&xSensorConfig);
 
   // Sensor Pin
-  ESP_LOGD(TAG, "cfg hw interrupt 4 sensor");
+  ESP_LOGD(TAG, "cfg hw interrupt for sensor");
   xTaskCreatePinnedToCore(vfnPirTask,        // function with task's code
                           "PIR sensor task", // name
                           2048,              // stack size
@@ -565,18 +549,14 @@ void setup()
   // 100000 - 10s, 600000 - 1m(60s)  6000000 - 10m  36000000 - 1h(60m)
   ESP_LOGD(TAG, "timerAlarmWrite");
   timerAlarmWrite(
-      timer,  // the pointer to the Timer created previously
-      6000000, // the frequency of triggering of the alarm in ticks
-      true);  // autoreload, Repeat the alarm, true to reset the alarm automatically after each trigger.
-  // timerAlarmWrite(timer, LOG_PERIOD, true);
-  // delayMicroseconds(0);
-  // delay(1);
+      timer,        // the pointer to the Timer created previously
+      TIMER_PERIOD, // the frequency of triggering of the alarm in ticks
+      true);        // autoreload, Repeat the alarm, true to reset the alarm automatically after each trigger.
   vTaskDelay(2);
   // Start an alarm
   ESP_LOGD(TAG, "timerAlarmEnable");
   timerAlarmEnable(timer);
   vTaskDelay(2);
-  // delay(1);
 
   TaskHandle_t task2Handle = NULL;
   xTaskCreate(
@@ -587,6 +567,11 @@ void setup()
       10,            //* Priority at which the task is created.
       &task2Handle); //* Used to pass out the created task's handle.
 #pragma endregion
+
+  pxShowDataSemaphore = xSemaphoreCreateBinary();
+  xTaskCreate(vfnvShowData, "Show data on screen", 2048, NULL, 10, NULL);
+  pxShowTimeSemaphore = xSemaphoreCreateBinary();
+  xTaskCreate(vfnShowTime, "Show time on screen", 2048, NULL, 10, NULL);
 
   // start task wifi http server
   xTaskCreate(vfnWifiSrv, "WiFi Web server", 2048, NULL, 10, NULL);

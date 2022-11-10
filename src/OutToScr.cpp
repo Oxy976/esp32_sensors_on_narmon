@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <M5Stack.h>
 #include "strct.h"
+#define SCRDELAY 2000 // сколько показывать картинку
 // https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 // тут используется исправленный шрифт с новыми символами и русскими буквами. Возможность вывода в UTF8 не используется. Вывод посимвольно.
 
@@ -96,8 +97,36 @@ String RgToStr(float r)
   return strR;
 }
 
+void ScreenOff()
+{
+  // delay(2000);
+  vTaskDelay(2000);
+  for (int i = 255; i >= 0; i--)
+  {
+    M5.Lcd.setBrightness(i);
+    // delay(10);
+    vTaskDelay(10);
+  }
+  M5.Lcd.fillScreen(TFT_BLACK);
+  M5.Lcd.writecommand(ILI9341_DISPOFF);
+}
+
+void ScreenOn()
+{
+  M5.Lcd.setBrightness(0);
+  M5.Lcd.writecommand(ILI9341_DISPON);
+  for (int i = 0; i <= 255; i++)
+  {
+    M5.Lcd.setBrightness(i);
+    // delay(2);
+    vTaskDelay(2);
+  }
+}
+
 void OutToScr(stSens *vSensVal)
 {
+  ScreenOn();
+
   float b1, sr1, sr2, sd1, sd2, sd3;
   // b1
   if (vSensVal[13].actual) // DS extDS_Temp
@@ -180,7 +209,7 @@ void OutToScr(stSens *vSensVal)
     sd1 = 888.0;
   }
 
- // sd2 нижняя строка влажность внутри
+  // sd2 нижняя строка влажность внутри
   if (vSensVal[7].actual) // vBME_i_humi
   {
     sd2 = vSensVal[7].value;
@@ -190,7 +219,7 @@ void OutToScr(stSens *vSensVal)
     sd2 = 0.0;
   }
 
- // sd3 нижняя строка радиация
+  // sd3 нижняя строка радиация
   if (vSensVal[0].actual) // RAD
   {
     sd3 = vSensVal[0].value;
@@ -199,39 +228,19 @@ void OutToScr(stSens *vSensVal)
   {
     sd3 = 0.0;
   }
- 
 
   OutStrToScr(TempToStr(b1), HumToStr(sr1), PressToStr(sr2), TempToStr(sd1), HumToStr(sd2), RgToStr(sd3));
+  vTaskDelay(SCRDELAY);
+  ScreenOff();
 }
 
-void ScreenOff()
+void ShowTime()
 {
-  // delay(2000);
-  vTaskDelay(2000);
-  for (int i = 255; i >= 0; i--)
-  {
-    M5.Lcd.setBrightness(i);
-    // delay(10);
-    vTaskDelay(10);
-  }
-  M5.Lcd.fillScreen(TFT_BLACK);
-  M5.Lcd.writecommand(ILI9341_DISPOFF);
-}
+  ScreenOn();
+  struct tm timeinfo;
 
-void ScreenOn()
-{
-  M5.Lcd.setBrightness(0);
-  M5.Lcd.writecommand(ILI9341_DISPON);
-  for (int i = 0; i <= 255; i++)
-  {
-    M5.Lcd.setBrightness(i);
-    // delay(2);
-    vTaskDelay(2);
-  }
-}
+  getLocalTime(&timeinfo);
 
-void ShowTime(struct tm timeinfo)
-{
   char ctme[20], cdte[20];
   sprintf(ctme, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
   sprintf(cdte, "%02d-%02d-%4d", timeinfo.tm_mday, (timeinfo.tm_mon + 1), (timeinfo.tm_year + 1900));
@@ -290,4 +299,6 @@ void ShowTime(struct tm timeinfo)
     M5.Lcd.drawString(String(char(225)), 160, 210, 1);
     break;
   }
+  vTaskDelay(SCRDELAY);
+  ScreenOff();
 }
