@@ -17,21 +17,21 @@ float vRadD = 0.0;
 float vRadS = 0.0; // v значене с датчика
 
 // ***BME280
-#define BME_ext_ADDR 0x77
 #define BME_int_ADDR 0x76
+#define BME_ext_ADDR 0x77
 
 // Create the BME280 object
-BME280_I2C sBME_e(BME_ext_ADDR); // I2C using address
 BME280_I2C sBME_i(BME_int_ADDR); // I2C using address
+BME280_I2C sBME_e(BME_ext_ADDR); // I2C using address
 
 boolean bBME_i = false;
 boolean bBME_e = false;
-float vBME_e_pres = 0.0;
-float vBME_e_temp = 0.0;
-float vBME_e_humi = 0.0;
 float vBME_i_pres = 0.0;
 float vBME_i_temp = 0.0;
 float vBME_i_humi = 0.0;
+float vBME_e_pres = 0.0;
+float vBME_e_temp = 0.0;
+float vBME_e_humi = 0.0;
 
 // ***HTU21D/SHT21
 // https://github.com/enjoyneering/HTU2xD_SHT2x_Si70xx
@@ -78,7 +78,7 @@ DeviceAddress sensorAddress;
 
 boolean bDS = false;
 float vDS = 0.0;
-float vDS_fix = -1.0; // fix  data from sensor (°C)
+float vDS_fix = -0.8; // fix  data from sensor (°C)
 
 // String GRAD = strcat("\x00B0","C");
 String sC = "C";
@@ -98,12 +98,12 @@ void startSens(stSens *vSensVal) // init sensors
         vSensVal[0].name = "Rad_dyn";
         vSensVal[1].name = "Rad_stat";
         vSensVal[2].name = "Rad_pulses";
-        vSensVal[3].name = "extBME_Temp";
-        vSensVal[4].name = "extBME_Hum";
-        vSensVal[5].name = "extBME_Press";
-        vSensVal[6].name = "intBME_Temp";
-        vSensVal[7].name = "intBME_Hum";
-        vSensVal[8].name = "intBME_Press";
+        vSensVal[3].name = "intBME_Temp";
+        vSensVal[4].name = "intBME_Hum";
+        vSensVal[5].name = "intBME_Press";
+        vSensVal[6].name = "extBME_Temp";
+        vSensVal[7].name = "extBME_Hum";
+        vSensVal[8].name = "extBME_Press";
         vSensVal[9].name = "extHTU_Temp";
         vSensVal[10].name = "extHTU_Hum";
         vSensVal[11].name = "extSHT_Temp";
@@ -111,9 +111,9 @@ void startSens(stSens *vSensVal) // init sensors
         vSensVal[13].name = "extDS_Temp";
         //-------- ID для публикации на narodmon(Какие заданы - будут отправлены, умолчательные значения "" пропущены)
         vSensVal[0].mqttId = "R0";
-        vSensVal[6].mqttId = "T2";
-        vSensVal[7].mqttId = "H2";
-        vSensVal[8].mqttId = "P2";
+        vSensVal[3].mqttId = "T2";
+        vSensVal[4].mqttId = "H2";
+        vSensVal[5].mqttId = "P2";
         // vSensVal[9].mqttId = "T1";
         // vSensVal[10].mqttId = "H1";
         vSensVal[11].mqttId = "T1";
@@ -155,22 +155,6 @@ void startSens(stSens *vSensVal) // init sensors
         }
 
         // ***BME
-        if (!sBME_e.begin())
-        {
-                ESP_LOGD(TAG, "Could not find a valid BME280 ext sensor---");
-                bBME_e = false;
-        }
-        else
-        {
-                ESP_LOGI(TAG, "BME280 ext sensor finded&activated***");
-                bBME_e = true;
-                sBME_e.setTempCal(0); // correcting data, need calibrate this!!!   *************
-
-                vSensVal[3].unit = GRAD;
-                vSensVal[4].unit = "%";
-                vSensVal[5].unit = "mmHg";
-        }
-
         if (!sBME_i.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid BME280 int sensor---");
@@ -181,6 +165,22 @@ void startSens(stSens *vSensVal) // init sensors
                 ESP_LOGI(TAG, "BME280 int sensor finded&activated***");
                 bBME_i = true;
                 sBME_i.setTempCal(0); // correcting data, need calibrate this!!!   *************
+
+                vSensVal[3].unit = GRAD;
+                vSensVal[4].unit = "%";
+                vSensVal[5].unit = "mmHg";
+        }
+
+        if (!sBME_e.begin())
+        {
+                ESP_LOGD(TAG, "Could not find a valid BME280 ext sensor---");
+                bBME_e = false;
+        }
+        else
+        {
+                ESP_LOGI(TAG, "BME280 ext sensor finded&activated***");
+                bBME_e = true;
+                sBME_e.setTempCal(0); // correcting data, need calibrate this!!!   *************
 
                 vSensVal[6].unit = GRAD;
                 vSensVal[7].unit = "%";
@@ -284,11 +284,13 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 {
                         vTaskDelay(20);
                         vNumPulse = sRadSens.getNumberOfPulses();
-                        ESP_LOGD(TAG, "Rad Pulses: %d ", vNumPulse);
+                        //ESP_LOGD(TAG, "Rad Pulses: %d ", vNumPulse);
                         vRadD = sRadSens.getRadIntensyDyanmic();
-                        ESP_LOGD(TAG, "Rad Dyanmic: %f mRh", vRadD);
+                        //ESP_LOGD(TAG, "Rad Dyanmic: %f mRh", vRadD);
                         vRadS = sRadSens.getRadIntensyStatic();
-                        ESP_LOGD(TAG, "Rad Static: %f mRh", vRadS);
+                        //ESP_LOGD(TAG, "Rad Static: %f mRh", vRadS);
+                        ESP_LOGD(TAG, "Rad pulses: %d, dyanmic: %f mRh, static: %f mRh ", vNumPulse,vRadD,vRadS);
+
 
                         vSensVal[0].value = vRadD;
                         vSensVal[1].value = vRadS;

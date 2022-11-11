@@ -1,4 +1,10 @@
 /*  план.
+ * на потом:
+ *   - вынести сервер  http в отдельный файл.
+ *   - разобраться с логами и вывести в http
+ *   - закрыть мьютексами экран и получение данных
+ *   - доработать вывод на экран, чтоб данные помещались все
+ * -----
  * таски:
  *  - получить данные с датчиков /функцией. возможно потом будет таском, но надо будет прописать мьютекс/
  *  - вывести на экран данные - vfnvShowData
@@ -54,6 +60,10 @@ unsigned long previousTime = 0;
 // Определяем задержку в миллисекундах
 const long timeoutTime = 2000;
 
+unsigned long startTime = millis();
+unsigned long isrPirTime = millis();
+unsigned long isrBtnTime = millis();
+
 #define ESP_INTR_FLAG_DEFAULT 0
 
 void showSensVal() //  for TEST!
@@ -80,7 +90,7 @@ void printLocalTime()
   char tbuffer[80];
   if (getLocalTime(&timeinfo))
   {
-    strftime(tbuffer, 80, " %d %b %Y   %I:%M:%S", &timeinfo);
+    strftime(tbuffer, 80, " %d %b %Y   %H:%M:%S", &timeinfo);
     ESP_LOGI(TAG, " %s", tbuffer);
   }
   else
@@ -107,8 +117,8 @@ void MqttPublish()
       // больше 10 попыток - что-то не так...
       if (count_reconnect > 10)
       {
-        ESP_LOGI(TAG, "problem with connecting to server, restarting");
-        ESP.restart();
+        ESP_LOGI(TAG, "problem with connecting to server !! **");
+        // ESP.restart();
       }
     }
     ESP_LOGI(TAG, "Connecting to %s with: id %s, auth %s, token %s", mqttServer, clientId, authMethod, token);
@@ -206,8 +216,9 @@ static void IRAM_ATTR vfnButtonISR(void *vpArg)
   ***/
   uint32_t ulGPIONumber = (uint32_t)vpArg; // get the triggering GPIO
                                            // ESP_LOGD(TAG, "ISR GPIO %d is %d",ulGPIONumber,gpio_get_level((gpio_num_t)ulGPIONumber)); // ****** TEST *** УБРАТЬ!****
-  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 0)
-  {                                       // only when pressed
+  if ((gpio_get_level((gpio_num_t)ulGPIONumber) == 0) && (millis() - isrBtnTime > 100))
+  { // only when pressed
+    isrBtnTime = millis();
     xTaskNotifyFromISR(xButtonHandle,     // task to notify
                        ulGPIONumber - 37, // 32 bit integer for passing a value
                        eSetBits,          // notify action (pass value in this case)
@@ -224,8 +235,10 @@ static void IRAM_ATTR vfnPirISR(void *vpArg)
   ***/
   uint32_t ulGPIONumber = (uint32_t)vpArg; // get the triggering GPIO
 
-  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 1)
+  // на пине верхний уровень и между импульсами прошло достаточно времени с прошлого
+  if ((gpio_get_level((gpio_num_t)ulGPIONumber) == 1) && (millis() - isrPirTime > 3000))
   {
+    isrPirTime = millis();
     xTaskNotifyFromISR(xPirHandle,        // task to notify
                        ulGPIONumber - 36, // 32 bit integer for passing a value
                        eSetBits,          // notify action (pass value in this case)
@@ -314,6 +327,7 @@ void setup_wifi()
   {
     vTaskDelay(500); // delay(500);
     Serial.print("#");
+    Serial.println();
     if (++wifiCounter > 5)
     {
       // ESP.restart();
@@ -359,6 +373,11 @@ void vfnWifiSrv(void *vpArg)
     { // Если есть подключение,
       currentTime = millis();
       previousTime = currentTime;
+      unsigned long upTime_sec = (currentTime - startTime) / 1000ul;
+      int upTime_h = (upTime_sec / 3600ul);        // часы
+      int upTime_m = (upTime_sec % 3600ul) / 60ul; // минуты
+      int upTime_s = (upTime_sec % 3600ul) % 60ul; // секунды
+
       Serial.println("New Client."); // выводим сообщение в монитор порта
       String currentLine = "";       // создаем строку для хранения входящих данных
       while (client.connected() && currentTime - previousTime <= timeoutTime)
@@ -404,6 +423,16 @@ void vfnWifiSrv(void *vpArg)
                 client.println(&timeinfo);
                 client.println("</br>");
               }
+              client.println("up time ");
+              client.println(upTime_sec);
+              client.println("sec (");
+              client.println(upTime_h);
+              client.println(":");
+              client.println(upTime_m);
+              client.println(":");
+              client.println(upTime_s);
+              client.println(")</br>");
+
               client.println("<table><tr><th>#</th><th>Name</th><th>VALUE</th><th>Unit</th></tr>");
               for (int i = 0; i < SensUnit; i++)
               {
@@ -465,6 +494,8 @@ void setup()
   // m5.Lcd.setTextSize(3);
 
   ESP_LOGI(TAG, "===Starting...====");
+
+  startTime = millis();
 
   setup_wifi();
   if (bConnWiFi)
@@ -579,6 +610,10 @@ void setup()
   // start sensors init
   ESP_LOGI(TAG, "start sensors init");
   startSens(vSensVal);
+  vTaskDelay(10);
+  xSemaphoreGive(pxShowTimeSemaphore);
+  vTaskDelay(2000);
+  xSemaphoreGive(pxShowDataSemaphore);
 }
 
 void loop(void) {}

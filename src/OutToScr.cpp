@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <M5Stack.h>
 #include "strct.h"
-#define SCRDELAY 2000 // сколько показывать картинку
+#define SCRDELAY 5000 // сколько показывать картинку
 // https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 // тут используется исправленный шрифт с новыми символами и русскими буквами. Возможность вывода в UTF8 не используется. Вывод посимвольно.
 
@@ -200,9 +200,9 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sd1 нижняя строка температура внутри
-  if (vSensVal[6].actual) // vBME_i_temp
+  if (vSensVal[3].actual) // vBME_i_temp
   {
-    sd1 = vSensVal[6].value;
+    sd1 = vSensVal[3].value;
   }
   else
   {
@@ -210,9 +210,9 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sd2 нижняя строка влажность внутри
-  if (vSensVal[7].actual) // vBME_i_humi
+  if (vSensVal[4].actual) // vBME_i_humi
   {
-    sd2 = vSensVal[7].value;
+    sd2 = vSensVal[4].value;
   }
   else
   {
