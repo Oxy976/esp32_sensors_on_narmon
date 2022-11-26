@@ -129,27 +129,27 @@ void OutToScr(stSens *vSensVal)
 
   float b1, sr1, sr2, sd1, sd2, sd3;
   // b1
-  if (vSensVal[13].actual) // DS extDS_Temp
+  if (vSensVal[0].actual) // DS extDS_Temp
   {
-    b1 = vSensVal[13].value;
+    b1 = vSensVal[0].value;
   }
   else
   {
-    if (vSensVal[11].actual) // SHT31 extSHT_Temp
+    if (vSensVal[12].actual) // SHT31 extSHT_Temp
     {
-      b1 = vSensVal[11].value;
+      b1 = vSensVal[12].value;
     }
     else
     {
-      if (vSensVal[9].actual) // HTU21 extHTU_Temp"
+      if (vSensVal[10].actual) // HTU21 extHTU_Temp"
       {
-        b1 = vSensVal[9].value;
+        b1 = vSensVal[10].value;
       }
       else
       {
-        if (vSensVal[3].actual) // BME_e_temp
+        if (vSensVal[7].actual) // BME_e_temp
         {
-          b1 = vSensVal[3].value;
+          b1 = vSensVal[7].value;
         }
         else
         {
@@ -159,21 +159,21 @@ void OutToScr(stSens *vSensVal)
     }
   }
   // sr1  правый столбец влажность снаружи
-  if (vSensVal[10].actual) // vSHT_e_humi
+  if (vSensVal[13].actual) // vSHT_e_humi
   {
-    sr1 = vSensVal[10].value;
+    sr1 = vSensVal[13].value;
   }
   else
   {
-    if (vSensVal[12].actual) // vHTU_e_humi
+    if (vSensVal[11].actual) // vHTU_e_humi
     {
-      sr1 = vSensVal[12].value;
+      sr1 = vSensVal[11].value;
     }
     else
     {
-      if (vSensVal[4].actual) // vBME_e_humi
+      if (vSensVal[8].actual) // vBME_e_humi
       {
-        sr1 = vSensVal[4].value;
+        sr1 = vSensVal[8].value;
       }
       else
       {
@@ -183,15 +183,15 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sr2 правый столбец давление
-  if (vSensVal[8].actual) // vBME_i_pres
+  if (vSensVal[6].actual) // vBME_i_pres
   {
-    sr2 = vSensVal[8].value;
+    sr2 = vSensVal[6].value;
   }
   else
   {
-    if (vSensVal[5].actual) // vBME_e_pres
+    if (vSensVal[9].actual) // vBME_e_pres
     {
-      sr2 = vSensVal[5].value;
+      sr2 = vSensVal[9].value;
     }
     else
     {
@@ -200,9 +200,9 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sd1 нижняя строка температура внутри
-  if (vSensVal[3].actual) // vBME_i_temp
+  if (vSensVal[4].actual) // vBME_i_temp
   {
-    sd1 = vSensVal[3].value;
+    sd1 = vSensVal[4].value;
   }
   else
   {
@@ -210,9 +210,9 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sd2 нижняя строка влажность внутри
-  if (vSensVal[4].actual) // vBME_i_humi
+  if (vSensVal[5].actual) // vBME_i_humi
   {
-    sd2 = vSensVal[4].value;
+    sd2 = vSensVal[5].value;
   }
   else
   {
@@ -220,9 +220,9 @@ void OutToScr(stSens *vSensVal)
   }
 
   // sd3 нижняя строка радиация
-  if (vSensVal[0].actual) // RAD
+  if (vSensVal[2].actual) // RAD
   {
-    sd3 = vSensVal[0].value;
+    sd3 = vSensVal[2].value;
   }
   else
   {

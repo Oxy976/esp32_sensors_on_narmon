@@ -196,7 +196,9 @@ static void vfnTimerTask(void *vpArg)
     if (bConnWiFi)
       MqttPublish();
     //запусить прогрев датчиков (семафор для таска?)
-    heatSens();
+    // Если влажность (HTU_e_humi или SHT_e_humi) >70% - прогреть
+    if (vSensVal[11].value > 70.0 || vSensVal[13].value > 70.0)
+      heatSens();
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL); // remove the task whene done
@@ -364,20 +366,34 @@ void setup_wifi()
 
 void vfnWifiSrv(void *vpArg)
 {
+  unsigned long upTime_sec = 0;
+  int upTime_d = 0;
+  int upTime_h = 0;
+  int upTime_m = 0;
+  int upTime_s = 0;
+
   String header;
   while (1)
   {
     WiFiClient client = wserv.available(); // Ждем подключения пользователя
 
     if (client)
-    { // Если есть подключение,
+    { // Если есть подключение
       currentTime = millis();
-      previousTime = currentTime;
-      unsigned long upTime_sec = (currentTime - startTime) / 1000ul;
-      int upTime_h = (upTime_sec / 3600ul);        // часы
-      int upTime_m = (upTime_sec % 3600ul) / 60ul; // минуты
-      int upTime_s = (upTime_sec % 3600ul) % 60ul; // секунды
-
+      if (previousTime < currentTime)
+      {
+        previousTime = currentTime;
+        upTime_sec = (currentTime - startTime) / 1000ul;    // ms->s
+        upTime_d = (upTime_sec / 24ul / 3600ul);            //дни
+        upTime_h = (upTime_sec / 3600ul - upTime_d * 24ul); // часы
+        upTime_m = (upTime_sec % 3600ul) / 60ul;            // минуты
+        upTime_s = (upTime_sec % 3600ul) % 60ul;            // секунды
+      }
+      else
+      {
+        // ***** обработать переход через 0 !!!
+        previousTime = currentTime;
+      }
       Serial.println("New Client."); // выводим сообщение в монитор порта
       String currentLine = "";       // создаем строку для хранения входящих данных
       while (client.connected() && currentTime - previousTime <= timeoutTime)
@@ -426,6 +442,8 @@ void vfnWifiSrv(void *vpArg)
               client.println("up time ");
               client.println(upTime_sec);
               client.println("sec (");
+              client.println(upTime_d);
+              client.println("days  ");
               client.println(upTime_h);
               client.println(":");
               client.println(upTime_m);

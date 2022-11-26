@@ -1,7 +1,7 @@
 #ifndef strct_h
 #define strct_h
 
-#define SensUnit 14 //  к-во параметров  с датчиков +1
+#define SensUnit 17 //  к-во параметров  с датчиков +1
 struct stSens
 {
         boolean actual = false; //значение прочиталось, актуально и входит в разрешенный диапазон
