@@ -346,13 +346,13 @@ void getSensData(stSens *vSensVal) // read data from sensors
                         vSensVal[3].value = sRadSens.getNumberOfPulses();
                         // ESP_LOGD(TAG, "Rad Pulses: %d ", vNumPulse);
 
-                        ESP_LOGD(TAG, "Rad pulses: %d, dyanmic: %f mRh, static: %f mRh ", vNumPulse, vSensVal[1].value, vSensVal[2].value);
+                        ESP_LOGD(TAG, "Rad pulses: %d, dyanmic: %f mRh, static: %f mRh ", vSensVal[3].value, vSensVal[1].value, vSensVal[2].value);
 
                         // vSensVal[1].value = vRadD;
                         // vSensVal[2].value = vRadS;
                         // vSensVal[3].value = vNumPulse;
                         //контроль корректности данных.
-                        if (vNumPulse > 200)
+                        if (vSensVal[3].value > 200)
                         {
                                 vSensVal[1].actual = true;
                                 vSensVal[2].actual = true;
