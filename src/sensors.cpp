@@ -68,6 +68,7 @@ HTU2xD_SHT2x_SI70xx sHTU_e(HTU2xD_SENSOR, HUMD_12BIT_TEMP_14BIT); // sensor type
 // HTU2xD_SHT2x_SI70xx htu_ext(SHT2x_SENSOR, HUMD_12BIT_TEMP_14BIT); //sensor type, resolution
 
 boolean bHTU_e = false;
+float vHTU_e = 0.0;
 // float vHTU_e_temp = 0.0;
 // float vHTU_e_humi = 0.0;
 
@@ -106,16 +107,16 @@ void startSens(stSens *vSensVal) // init sensors
         vSensVal[1].name = "Rad_dyn";
         vSensVal[2].name = "Rad_stat";
         vSensVal[3].name = "Rad_pulses";
-        vSensVal[4].name = "intBME_Temp";
-        vSensVal[5].name = "intBME_Hum";
-        vSensVal[6].name = "intBME_Press";
-        vSensVal[7].name = "extBME_Temp";
-        vSensVal[8].name = "extBME_Hum";
-        vSensVal[9].name = "extBME_Press";
-        vSensVal[10].name = "extHTU_Temp";
-        vSensVal[11].name = "extHTU_Hum";
-        vSensVal[12].name = "extSHT_Temp";
-        vSensVal[13].name = "extSHT_Hum";
+        vSensVal[4].name = "extBME_Temp";
+        vSensVal[5].name = "extBME_Hum";
+        vSensVal[6].name = "extBME_Press";
+        vSensVal[7].name = "extHTU_Temp";
+        vSensVal[8].name = "extHTU_Hum";
+        vSensVal[9].name = "extSHT_Temp";
+        vSensVal[10].name = "extSHT_Hum";
+        vSensVal[11].name = "intBME_Temp";
+        vSensVal[12].name = "intBME_Hum";
+        vSensVal[13].name = "intBME_Press";
         vSensVal[14].name = "intSCD30_Temp";
         vSensVal[15].name = "intSCD30__Hum";
         vSensVal[16].name = "intSCD30_CO2";
@@ -123,13 +124,13 @@ void startSens(stSens *vSensVal) // init sensors
         //-------- ID для публикации на narodmon(Какие заданы - будут отправлены, умолчательные значения "" пропущены)
         vSensVal[0].mqttId = "T0";
         vSensVal[2].mqttId = "R0";
-        vSensVal[4].mqttId = "T2";
-        vSensVal[5].mqttId = "H2";
-        vSensVal[6].mqttId = "P2";
-        // vSensVal[9].mqttId = "T1";
-        // vSensVal[10].mqttId = "H1";
-        vSensVal[12].mqttId = "T1";
-        vSensVal[13].mqttId = "H1";
+        // vSensVal[7].mqttId = "T1";
+        // vSensVal[8].mqttId = "H1";
+        vSensVal[9].mqttId = "T1";
+        vSensVal[10].mqttId = "H1";
+        vSensVal[11].mqttId = "T2";
+        vSensVal[12].mqttId = "H2";
+        vSensVal[13].mqttId = "P2";
 
         // ***dallas DS18B20
         sDS.begin();
@@ -186,23 +187,6 @@ void startSens(stSens *vSensVal) // init sensors
                 vSensVal[3].unit = "#";
         }
 
-        // ***BME
-        if (!sBME_i.begin())
-        {
-                ESP_LOGD(TAG, "Could not find a valid BME280 int sensor---");
-                bBME_i = false;
-        }
-        else
-        {
-                ESP_LOGI(TAG, "BME280 int sensor finded&activated***");
-                bBME_i = true;
-                sBME_i.setTempCal(0); // correcting data, need calibrate this!!!   *************
-
-                vSensVal[4].unit = GRAD;
-                vSensVal[5].unit = "%";
-                vSensVal[6].unit = "mmHg";
-        }
-
         if (!sBME_e.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid BME280 ext sensor---");
@@ -214,9 +198,9 @@ void startSens(stSens *vSensVal) // init sensors
                 bBME_e = true;
                 sBME_e.setTempCal(0); // correcting data, need calibrate this!!!   *************
 
-                vSensVal[7].unit = GRAD;
-                vSensVal[8].unit = "%";
-                vSensVal[9].unit = "mmHg";
+                vSensVal[4].unit = GRAD;
+                vSensVal[5].unit = "%";
+                vSensVal[6].unit = "mmHg";
         }
 
         // ***HTU21D/SHT21
@@ -230,8 +214,8 @@ void startSens(stSens *vSensVal) // init sensors
                 ESP_LOGI(TAG, "HTU21D ext sensor finded&activated***");
                 ESP_LOGI(TAG, "HTU21 Dev_ID %d,firmware %d", sHTU_e.readDeviceID(), sHTU_e.readFirmwareVersion());
                 bHTU_e = true;
-                vSensVal[10].unit = GRAD;
-                vSensVal[11].unit = "%";
+                vSensVal[7].unit = GRAD;
+                vSensVal[8].unit = "%";
         }
 
         // ***SHT31
@@ -277,15 +261,32 @@ void startSens(stSens *vSensVal) // init sensors
                 {
                         sSHT_e.heatOff();
                 }
-                vSensVal[12].unit = GRAD;
-                vSensVal[13].unit = "%";
+                vSensVal[9].unit = GRAD;
+                vSensVal[10].unit = "%";
+        }
+
+        // ***BME
+        if (!sBME_i.begin())
+        {
+                ESP_LOGD(TAG, "Could not find a valid BME280 int sensor---");
+                bBME_i = false;
+        }
+        else
+        {
+                ESP_LOGI(TAG, "BME280 int sensor finded&activated***");
+                bBME_i = true;
+                sBME_i.setTempCal(0); // correcting data, need calibrate this!!!   *************
+
+                vSensVal[11].unit = GRAD;
+                vSensVal[12].unit = "%";
+                vSensVal[13].unit = "mmHg";
         }
 
         // ***SCD30
         if (!sSCD30_i.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid SCD30 sensor---");
-                bHTU_e = false;
+                bSCD30_i = false;
         }
         else
         {
@@ -361,19 +362,21 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 }
         }
 
-        if (bBME_i)
+        if (bBME_e)
         {
-                sBME_i.readSensor();                                 // get data
-                vTaskDelay(20);                                      // delay(10);
-                vSensVal[4].value = sBME_i.getTemperature_C();             // read data
-                vSensVal[5].value = sBME_i.getHumidity();                  // read data
-                vSensVal[6].value = (sBME_i.getPressure_MB() * 0.7500638); // read data
-                ESP_LOGD(TAG, "BME_int Temp=%f, Humi=%f, Pres=%f", vSensVal[4].value,  vSensVal[5].value, vSensVal[6].value);
+                sBME_e.readSensor(); // get data
 
-                //vSensVal[4].value = vBME_i_temp;
-                //vSensVal[5].value = vBME_i_humi;
-                //vSensVal[6].value = vBME_i_pres;
+                vTaskDelay(20);                                            // delay(10);
+                vSensVal[4].value = sBME_e.getTemperature_C();             // read data
+                vSensVal[5].value = sBME_e.getHumidity();                  // read data
+                vSensVal[6].value = (sBME_e.getPressure_MB() * 0.7500638); // read data
+                ESP_LOGD(TAG, "BME_ext Temp=%f, Humi=%f, Pres=%f", vSensVal[4].value, vSensVal[5].value, vSensVal[6].value);
+
+                // vSensVal[7].value = vBME_e_temp;
+                // vSensVal[8].value = vBME_e_humi;
+                // vSensVal[9].value = vBME_e_pres;
                 //контроль корректности данных.
+
                 if (vSensVal[4].value > -50 and vSensVal[4].value < 50)
                 {
                         vSensVal[4].actual = true;
@@ -387,21 +390,42 @@ void getSensData(stSens *vSensVal) // read data from sensors
                         vSensVal[6].actual = true;
                 }
         }
-        if (bBME_e)
+
+        if (bHTU_e)
         {
-                sBME_e.readSensor(); // get data
+                vHTU_e = sHTU_e.readTemperature(); // read data
+                if (vHTU_e != HTU2XD_SHT2X_SI70XX_ERROR)
+                {
+                        vSensVal[7].value = vHTU_e; // temp
+                }
+                else
+                {
+                        ESP_LOGD(TAG, "HTU_ext ERROR reading temp");
+                        sHTU_e.softReset();                          // last chance to make it alive, all registers (except heater bit) will set to default
+                        sHTU_e.setHeater(false);                     // true=heater on, false=heater off
+                        sHTU_e.setResolution(HUMD_12BIT_TEMP_14BIT); // humidity 12-bit, temperature 14-bit
+                }
+                /* read compensated humidity */
+                vTaskDelay(500);
+                if (vHTU_e != HTU2XD_SHT2X_SI70XX_ERROR) // if temperature OK, measure RH & calculate compensated humidity
+                {
+                        vHTU_e = sHTU_e.getCompensatedHumidity(vHTU_e); // accuracy +-2% in range 0%..100%/0C..80C at 12-bit, to compensates influence of T on RH
 
-                vTaskDelay(20);                                      // delay(10);
-                vSensVal[7].value = sBME_e.getTemperature_C();             // read data
-                vSensVal[8].value = sBME_e.getHumidity();                  // read data
-                vSensVal[9].value = (sBME_e.getPressure_MB() * 0.7500638); // read data
-                ESP_LOGD(TAG, "BME_ext Temp=%f, Humi=%f, Pres=%f", vSensVal[7].value, vSensVal[8].value, vSensVal[9].value);
+                        if (vHTU_e != HTU2XD_SHT2X_SI70XX_ERROR)
+                        {
+                                vSensVal[8].value = vHTU_e;
+                        }
+                }
+                if (vHTU_e == HTU2XD_SHT2X_SI70XX_ERROR)
+                {
+                        ESP_LOGD(TAG, "HTU_ext ERROR reading humidity");
+                }
 
-                //vSensVal[7].value = vBME_e_temp;
-               // vSensVal[8].value = vBME_e_humi;
-                //vSensVal[9].value = vBME_e_pres;
+                ESP_LOGD(TAG, "HTU_ext Temp=%f, Humi=%f", vSensVal[7].value, vSensVal[8].value);
+
+                // vSensVal[7].value = vHTU_e_temp;
+                // vSensVal[8].value = vHTU_e_humi;
                 //контроль корректности данных.
-
                 if (vSensVal[7].value > -50 and vSensVal[7].value < 50)
                 {
                         vSensVal[7].actual = true;
@@ -409,29 +433,6 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 if (vSensVal[8].value > 5 and vSensVal[8].value < 101)
                 {
                         vSensVal[8].actual = true;
-                }
-                if (vSensVal[9].value > 600 and vSensVal[9].value < 811)
-                {
-                        vSensVal[9].actual = true;
-                }
-        }
-
-        if (bHTU_e)
-        {
-                vSensVal[10].value = sHTU_e.readTemperature(); // read data
-                vSensVal[11].value = sHTU_e.readHumidity();
-                ESP_LOGD(TAG, "HTU_ext Temp=%f, Humi=%f", vSensVal[10].value, vSensVal[11].value);
-
-                //vSensVal[10].value = vHTU_e_temp;
-                //vSensVal[11].value = vHTU_e_humi;
-                //контроль корректности данных.
-                if (vSensVal[10].value > -50 and vSensVal[10].value < 50)
-                {
-                        vSensVal[10].actual = true;
-                }
-                if (vSensVal[11].value > 5 and vSensVal[11].value < 101)
-                {
-                        vSensVal[11].actual = true;
                 }
         }
 
@@ -441,24 +442,51 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 {
 
                         vTaskDelay(50);
-                        vSensVal[12].value = sSHT_e.getTemperature(); // read data
-                        vSensVal[13].value = sSHT_e.getHumidity();
-                        ESP_LOGD(TAG, "SHT_ext Temp=%f, Humi=%f", vSensVal[12].value, vSensVal[13].value);
-                        //vSensVal[12].value = vSHT_e_temp;
-                        //vSensVal[13].value = vSHT_e_humi;
+                        vSensVal[9].value = sSHT_e.getTemperature(); // read data
+                        vSensVal[10].value = sSHT_e.getHumidity();
+                        ESP_LOGD(TAG, "SHT_ext Temp=%f, Humi=%f", vSensVal[9].value, vSensVal[10].value);
+                        // vSensVal[12].value = vSHT_e_temp;
+                        // vSensVal[13].value = vSHT_e_humi;
                         //контроль корректности данных.
-                        if ((vSensVal[12].value > -50 and vSensVal[12].value < 50) || (!sSHT_e.isHeaterOn()))
+                        if ((vSensVal[9].value > -50 and vSensVal[9].value < 50) || (!sSHT_e.isHeaterOn()))
                         {
-                                vSensVal[12].actual = true;
+                                vSensVal[9].actual = true;
                         }
-                        if (vSensVal[13].value > 5 and vSensVal[13].value < 101)
+                        if (vSensVal[10].value > 5 and vSensVal[10].value < 101)
                         {
-                                vSensVal[13].actual = true;
+                                vSensVal[10].actual = true;
                         }
-                        if (vSensVal[13].value >= 100)
+                        if (vSensVal[10].value >= 100)
                         {
                                 sSHT_e.reset();
                         }
+                }
+        }
+
+        if (bBME_i)
+        {
+                sBME_i.readSensor();                                        // get data
+                vTaskDelay(20);                                             // delay(10);
+                vSensVal[11].value = sBME_i.getTemperature_C();             // read data
+                vSensVal[12].value = sBME_i.getHumidity();                  // read data
+                vSensVal[13].value = (sBME_i.getPressure_MB() * 0.7500638); // read data
+                ESP_LOGD(TAG, "BME_int Temp=%f, Humi=%f, Pres=%f", vSensVal[11].value, vSensVal[12].value, vSensVal[13].value);
+
+                // vSensVal[4].value = vBME_i_temp;
+                // vSensVal[5].value = vBME_i_humi;
+                // vSensVal[6].value = vBME_i_pres;
+                //контроль корректности данных.
+                if (vSensVal[11].value > -50 and vSensVal[11].value < 50)
+                {
+                        vSensVal[11].actual = true;
+                }
+                if (vSensVal[12].value > 5 and vSensVal[12].value < 101)
+                {
+                        vSensVal[12].actual = true;
+                }
+                if (vSensVal[13].value > 600 and vSensVal[13].value < 811)
+                {
+                        vSensVal[13].actual = true;
                 }
         }
 
