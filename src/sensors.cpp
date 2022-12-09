@@ -118,7 +118,7 @@ void startSens(stSens *vSensVal) // init sensors
         vSensVal[12].name = "intBME_Hum";
         vSensVal[13].name = "intBME_Press";
         vSensVal[14].name = "intSCD30_Temp";
-        vSensVal[15].name = "intSCD30__Hum";
+        vSensVal[15].name = "intSCD30_Hum";
         vSensVal[16].name = "intSCD30_CO2";
 
         //-------- ID для публикации на narodmon(Какие заданы - будут отправлены, умолчательные значения "" пропущены)
@@ -131,6 +131,9 @@ void startSens(stSens *vSensVal) // init sensors
         vSensVal[11].mqttId = "T2";
         vSensVal[12].mqttId = "H2";
         vSensVal[13].mqttId = "P2";
+        //vSensVal[14].mqttId = "T3";
+        //vSensVal[15].mqttId = "H3";
+        vSensVal[16].mqttId = "CO2";
 
         // ***dallas DS18B20
         sDS.begin();
@@ -310,7 +313,6 @@ void startSens(stSens *vSensVal) // init sensors
 }
 
 //***********************************
-// void SENSORS::getSensData() // read data from sensors
 void getSensData(stSens *vSensVal) // read data from sensors
 {
         resetActualSensVal(vSensVal);
@@ -497,7 +499,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                         vSensVal[14].value = sSCD30_i.getTemperature();
                         vSensVal[15].value = sSCD30_i.getHumidity();
                         vSensVal[16].value = sSCD30_i.getCO2();
-                        ESP_LOGD(TAG, "HTU_ext Temp=%f, Humi=%f, CO2=%f", vSensVal[14].value, vSensVal[15].value, vSensVal[16].value);
+                        ESP_LOGD(TAG, "SCD_int Temp=%f, Humi=%f, CO2=%f", vSensVal[14].value, vSensVal[15].value, vSensVal[16].value);
 
                         //контроль корректности данных.
                         if (vSensVal[14].value > -50 and vSensVal[14].value < 50)
@@ -511,6 +513,13 @@ void getSensData(stSens *vSensVal) // read data from sensors
                         vSensVal[16].actual = true;
                 }
         }
+
+// ************************ TEST **********************
+//vSensVal[16].actual = true;
+//vSensVal[16].value = 333.33;
+//vSensVal[0].actual = true;
+//vSensVal[0].value = 88.88;
+// *******************************************
 }
 
 extern void heatSens() //прогрев датчиков для правильной влажности. (Может стоит проверить на температуру-влажность?)

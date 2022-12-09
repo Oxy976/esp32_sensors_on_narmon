@@ -54,10 +54,14 @@ String TempToStr(float t)
   int t1, t2, sym_t2;
   String strT;
   T = round(t * 10);
-  t1 = T / 10;
+  t1 = abs(T / 10);
   t2 = abs(T % 10);
   sym_t2 = sym_dnum[t2];
-  strT = String(t1) + "," + String(char(sym_t2)) + " " + String(char(sym_gradC));
+  if (t > 0)
+    strT = "";
+  else
+    strT = "-";
+  strT = strT + String(t1) + "," + String(char(sym_t2)) + " " + String(char(sym_gradC));
   return strT;
 }
 

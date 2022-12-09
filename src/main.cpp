@@ -100,8 +100,50 @@ void printLocalTime()
   }
 }
 
+bool NarodmonTcpPublish()
+{
+  static const char *TAG = "NmonTcp";
+  WiFiClient client;
+
+  String buf;
+  String mac = "30:AE:A4:69:B9:04";
+//  String mac = "30AEA469B904";
+  buf = "#" + mac + "\n"; // заголовок
+  for (int i = 0; i < SensUnit; i++)
+  {
+    if (vSensVal[i].actual & (vSensVal[i].mqttId.length() > 1))
+    {
+      buf = buf + "#" + vSensVal[i].mqttId + "#" + String(vSensVal[i].value, 2) + "\n"; // #mac1#value1 (#H1#93)
+    }
+  }
+  buf = buf + "##\n"; // закрываем пакет
+
+  //Serial.println(buf);      //TEST
+  //ESP_LOGD(TAG, "string to site: %s", buf);  //спец.символы не ест
+
+   if (!client.connect("narodmon.ru", 8283)) // попытка подключения
+  //if (!client.connect("127.0.0.1", 8283)) // попытка подключения  test
+  {
+    ESP_LOGD(TAG, "Connecting failed");
+    client.stop();
+    return false; // не удалось;
+  }
+  else
+  {
+    ESP_LOGI(TAG, "Connected to narodmon, sending data string");
+    client.print(buf); // и отправляем данные
+    while (client.available())
+    {
+      String line = client.readStringUntil('\r'); // если что-то в ответ будет
+      ESP_LOGD(TAG, "string from site: %s", line);
+    }
+    client.stop();
+    return true; //ушло
+  }
+}
+
 // ==MQTT ==публикация
-void MqttPublish()
+void MqttPublish() // narodmon mqtt больше бесплатно не понимает,  не используется
 {
   static const char *TAG = "mqtt";
 
@@ -193,11 +235,12 @@ static void vfnTimerTask(void *vpArg)
     printLocalTime();
     getSensData(vSensVal); // считать данные
     //отправить данные на narodmon (семафор для таска?) если wifi подключен
-    if (bConnWiFi)
-      MqttPublish();
+    if (bConnWiFi)             
+      // MqttPublish();
+      NarodmonTcpPublish();
     //запусить прогрев датчиков (семафор для таска?)
     // Если влажность (HTU_e_humi или SHT_e_humi) >70% - прогреть
-    if (vSensVal[11].value > 70.0 || vSensVal[13].value > 70.0)
+    if (vSensVal[8].value > 70.0 || vSensVal[10].value > 70.0)
       heatSens();
   }
   ESP_LOGD(TAG, "Crash!");
@@ -216,11 +259,10 @@ static void IRAM_ATTR vfnButtonISR(void *vpArg)
   Interrupt routine for handling GPIO interrupts.
   vpArg is a pointer to the GPIO number.
   ***/
-  uint32_t ulGPIONumber = (uint32_t)vpArg; // get the triggering GPIO
-                                           // ESP_LOGD(TAG, "ISR GPIO %d is %d",ulGPIONumber,gpio_get_level((gpio_num_t)ulGPIONumber)); // ****** TEST *** УБРАТЬ!****
-  if ((gpio_get_level((gpio_num_t)ulGPIONumber) == 0) && (millis() - isrBtnTime > 100))
-  { // only when pressed
-    isrBtnTime = millis();
+  uint32_t ulGPIONumber = (uint32_t)vpArg;           // get the triggering GPIO
+                                                     // ESP_LOGD(TAG, "ISR GPIO %d is %d",ulGPIONumber,gpio_get_level((gpio_num_t)ulGPIONumber)); // ****** TEST *** УБРАТЬ!****
+  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 0) //по нажатию
+  {
     xTaskNotifyFromISR(xButtonHandle,     // task to notify
                        ulGPIONumber - 37, // 32 bit integer for passing a value
                        eSetBits,          // notify action (pass value in this case)
@@ -231,16 +273,11 @@ static void IRAM_ATTR vfnButtonISR(void *vpArg)
 
 static void IRAM_ATTR vfnPirISR(void *vpArg)
 {
-  /***
-  Interrupt routine for handling GPIO interrupts.
-  vpArg is a pointer to the GPIO number.
-  ***/
   uint32_t ulGPIONumber = (uint32_t)vpArg; // get the triggering GPIO
 
-  // на пине верхний уровень и между импульсами прошло достаточно времени с прошлого
-  if ((gpio_get_level((gpio_num_t)ulGPIONumber) == 1) && (millis() - isrPirTime > 3000))
+  // на пине верхний уровень
+  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 1)
   {
-    isrPirTime = millis();
     xTaskNotifyFromISR(xPirHandle,        // task to notify
                        ulGPIONumber - 36, // 32 bit integer for passing a value
                        eSetBits,          // notify action (pass value in this case)
@@ -260,9 +297,11 @@ static void vfnButtonTask(void *vpArg)
                               0xFFFFFFFF,       // clear all bits on exit
                               &ulNotifiedValue, // stores the notified value
                               portMAX_DELAY);   // wait forever
-    if (xResult == pdPASS)
-      ESP_LOGD(TAG, "HW button interrupt now");
+    if ((xResult == pdPASS) && (millis() - isrBtnTime > 100ul))
     {
+      ESP_LOGD(TAG, "HW button interrupt now");
+      isrBtnTime = millis();
+
       switch (ulNotifiedValue)
       {
       case 0:
@@ -279,6 +318,7 @@ static void vfnButtonTask(void *vpArg)
         ESP_LOGD(TAG, "==button 2==");
         printLocalTime();
         showSensVal(); // TEST!
+        //NarodmonTcpPublish();  // ****************TEST**********
         break;
       default:
         ESP_LOGD(TAG, "This should not happen...");
@@ -298,11 +338,12 @@ static void vfnPirTask(void *vpArg)
   while (1)
   {
     xResult = xTaskNotifyWait(pdFALSE, 0xFFFFFFFF, &ulNotifiedValue, portMAX_DELAY);
-    if (xResult == pdPASS)
+    if ((xResult == pdPASS) && (millis() - isrPirTime > 5000ul) && (millis() > 3000ul)) //если прерывание и прошло достаточно от прошлого и задержка на активацию датчика
     {
       ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
       ESP_LOGD(TAG, "give semaphore data");
       xSemaphoreGive(pxShowDataSemaphore);
+      isrPirTime = millis();
     }
   }
   ESP_LOGD(TAG, "Crash!");
@@ -470,6 +511,7 @@ void vfnWifiSrv(void *vpArg)
                 client.println("</td><td>");
                 client.println(vSensVal[i].unit);
                 client.println("</td></span></tr>");
+                vTaskDelay(5);
               }
               client.println("</body></html>");
 
@@ -630,8 +672,9 @@ void setup()
   startSens(vSensVal);
   vTaskDelay(10);
   xSemaphoreGive(pxShowTimeSemaphore);
-  vTaskDelay(2000);
-  xSemaphoreGive(pxShowDataSemaphore);
+  // vTaskDelay(2000);
+  // xSemaphoreGive(pxShowDataSemaphore);
+  getSensData(vSensVal);
 }
 
 void loop(void) {}
