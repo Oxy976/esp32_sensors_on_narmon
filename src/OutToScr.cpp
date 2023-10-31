@@ -58,7 +58,7 @@ String TempToStr(float t)
   t2 = abs(T % 10);
   sym_t2 = sym_dnum[t2];
   if (t > 0)
-    strT = "";
+    strT = "+";
   else
     strT = "-";
   strT = strT + String(t1) + "," + String(char(sym_t2)) + " " + String(char(sym_gradC));
