@@ -26,7 +26,7 @@ const int   daylightOffset_sec = 0;
 //--
 
 //mqtt4narmon
-char server[] = SRV ;
+char mqttServer[] = SRV;
 char authMethod[] = USERNAME;
 char token[] = PASS;
 char clientId[] = MAC;
