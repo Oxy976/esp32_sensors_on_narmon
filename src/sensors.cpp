@@ -7,6 +7,8 @@
 
 #include "sensors.h"
 
+extern void logToWeb(String text);
+
 // static int numChSens; // number of activ sensor channels
 
 // **** Temp DS18B20
@@ -146,11 +148,13 @@ void startSens(stSens *vSensVal) // init sensors
         if (!sDS.getAddress(sensorAddress, 0))
         {
                 ESP_LOGD(TAG, "Could not find Dallas DS18B20 sensor---");
+                logToWeb("Could not find Dallas DS18B20 sensor---");
                 bDS = false;
         }
         else
         {
                 ESP_LOGI(TAG, "Dallas DS18B20 sensor finded on address 0x%X  ***", sensorAddress);
+                logToWeb("Dallas DS18B20 sensor finded");
                 bDS = true;
 
                 // Устанавливаем разрешение датчика в 12 бит (max) (при уменьшении точности скорость получения данных увеличится)
@@ -163,12 +167,14 @@ void startSens(stSens *vSensVal) // init sensors
         // if (!sRadSens.init())
         {
                 ESP_LOGD(TAG, "Could not find a RadSens!---");
+                logToWeb("RadSens not found");
                 bRAD = false;
         }
         else
         {
                 vTaskDelay(100);
                 ESP_LOGI(TAG, "RadSens  sensor finded ***");
+                logToWeb("RadSens  sensor finded");
                 bRAD = true;
                 ESP_LOGI(TAG, "Chip id:  %X", sRadSens.getChipId());
                 ESP_LOGI(TAG, "Firmware version:  %d", sRadSens.getFirmwareVersion());
@@ -196,11 +202,13 @@ void startSens(stSens *vSensVal) // init sensors
         if (!sBME_e.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid BME280 ext sensor---");
+                logToWeb("BME280 ext sensor not found");
                 bBME_e = false;
         }
         else
         {
                 ESP_LOGI(TAG, "BME280 ext sensor finded&activated***");
+                logToWeb("BME280 ext sensor finded&activated");
                 bBME_e = true;
                 sBME_e.setTempCal(0); // correcting data, need calibrate this!!!   *************
 
@@ -213,12 +221,14 @@ void startSens(stSens *vSensVal) // init sensors
         if (!sHTU_e.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid HTU21D ext sensor---");
+                logToWeb("HTU21D ext sensor not found");
                 bHTU_e = false;
         }
         else
         {
                 ESP_LOGI(TAG, "HTU21D ext sensor finded&activated***");
                 ESP_LOGI(TAG, "HTU21 Dev_ID %d,firmware %d", sHTU_e.readDeviceID(), sHTU_e.readFirmwareVersion());
+                 logToWeb("HTU21D ext sensor finded&activated");
                 bHTU_e = true;
                 vSensVal[7].unit = GRAD;
                 vSensVal[8].unit = "%";
@@ -229,12 +239,13 @@ void startSens(stSens *vSensVal) // init sensors
         if (!sSHT_e.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid SHT31 ext sensor---");
-                // Serial.println("*------> Could not find a valid SHT31 ext sensor, check wiring! ***!! ");
+                logToWeb("SHT31 ext sensor not found");
                 bSHT_e = false;
         }
         else
         {
                 ESP_LOGI(TAG, "SHT31 ext sensor finded&activated***");
+                logToWeb("SHT31 ext sensor finded&activated");
                 bSHT_e = true;
                 ESP_LOGI(TAG, "SHT31 status %X (Def 0x8010)", sSHT_e.readStatus());
                 // bit - description
@@ -276,11 +287,13 @@ void startSens(stSens *vSensVal) // init sensors
         if (!sBME_i.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid BME280 int sensor---");
+                logToWeb("BME280 int sensor not found");
                 bBME_i = false;
         }
         else
         {
                 ESP_LOGI(TAG, "BME280 int sensor finded&activated***");
+                logToWeb("BME280 int sensor finded&activated");
                 bBME_i = true;
                 sBME_i.setTempCal(0); // correcting data, need calibrate this!!!   *************
 
@@ -293,11 +306,13 @@ void startSens(stSens *vSensVal) // init sensors
         if (!sSCD30_i.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid SCD30 sensor---");
+                logToWeb("SCD30 ext sensor not found"); 
                 bSCD30_i = false;
         }
         else
         {
                 ESP_LOGI(TAG, "SCD30 ext sensor finded&activated***");
+                logToWeb("SCD30 ext sensor finded&activated");
                 uint16_t settingVal;
                 sSCD30_i.getFirmwareVersion(&settingVal);
                 ESP_LOGI(TAG, "SCD30 firmware %d", settingVal);
@@ -537,6 +552,7 @@ extern void heatSens() //прогрев датчиков для правильн
         {
                 sHTU_e.setHeater(true);
                 ESP_LOGD(TAG, "Heating HTU is ON");
+                logToWeb("Heating HTU is ON");
         }
 
         //#SHT31
@@ -544,6 +560,7 @@ extern void heatSens() //прогрев датчиков для правильн
         {
                 sSHT_e.heatOn();
                 ESP_LOGD(TAG, "Heating SHT is ON");
+                logToWeb("Heating SHT is ON");
         }
 
         vTaskDelay(HEATTIME);
@@ -552,11 +569,13 @@ extern void heatSens() //прогрев датчиков для правильн
         {
                 sHTU_e.setHeater(false);
                 ESP_LOGD(TAG, "Heating HTU is OFF");
+                logToWeb("Heating HTU is OFF");
         }
         if (bSHT_e)
         {
                 sSHT_e.heatOff();
                 ESP_LOGD(TAG, "Heating SHT is OFF");
+                logToWeb("Heating SHT is OFF");
         }
 }
 

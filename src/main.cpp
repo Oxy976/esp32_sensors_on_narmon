@@ -3,12 +3,11 @@
  *
  *   - вынести сервер  http в отдельный файл.
  *   - разобраться с логами и вывести в http
- *   - закрыть мьютексами экран
  *   - доработать вывод на экран, чтоб данные помещались все
  * -----
  * сделано:
  *  + watchdog на сеть - если нет роутера, то переподключиться
- *  - закрыть мьютексами   получение данных
+ *  - закрыть мьютексами   получение данных, экран
  * таски:
  *  - получить данные с датчиков /функцией. возможно потом будет таском, но надо будет прописать мьютекс/
  *  - вывести на экран данные - vfnvShowData
@@ -38,10 +37,20 @@
 #include "sdkconfig.h"
 
 #include "settings.h"
-//#include <deque> // Удобный стандартный контейнер C++ для очередей
 #include "wifi_server.h" // Подключаем созданный модуль сервера http
 #include "strct.h"
 stSens vSensVal[SensUnit];
+
+// --webLogs
+// === ИСПРАВЛЕНИЕ КОНФЛИКТА ARDUINO И C++ deque ===
+#undef min
+#undef max
+#include <deque> // Удобный стандартный контейнер C++ для очередей weblog
+// Настройки веб-журнала (выделяем память здесь, в главном файле)
+const size_t MAX_LOG_LINES = 50;
+std::deque<String> webLogs;
+SemaphoreHandle_t xLogMutex = NULL; // Мьютекс создадим в setup()
+// --
 
 // Хэндл мьютекса для защиты массива vSensVal
 SemaphoreHandle_t xSensorsMutex = NULL;
@@ -49,9 +58,6 @@ SemaphoreHandle_t xSensorsMutex = NULL;
 #include "sensors.h"
 
 #include <WiFi.h>
-//#include <WebServer.h>
-// WiFiServer wserv(80);  //к удалению (устарело)
-//WebServer wserv(80);
 TaskHandle_t httpTaskHandle = NULL; // Хэндл управления таской сервера
 
 #include <WiFiClient.h>
@@ -85,6 +91,37 @@ unsigned long isrBtnTime = millis();
 
 #define ESP_INTR_FLAG_DEFAULT 0
 
+// Глобальная функция логирования logToWeb
+void logToWeb(String text)
+{
+  struct tm timeinfo;
+  char timeBuf[32] = "";
+  String timeStr = "";
+
+  if (getLocalTime(&timeinfo) && timeinfo.tm_year > 120)
+  {
+    strftime(timeBuf, sizeof(timeBuf), "[%H:%M:%S] ", &timeinfo);
+    timeStr = String(timeBuf);
+  }
+  else
+  {
+    timeStr = "[" + String(millis() / 1000) + "s] ";
+  }
+
+  if (xLogMutex != NULL && xSemaphoreTake(xLogMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+  {
+    webLogs.push_back(timeStr + text);
+    if (webLogs.size() > MAX_LOG_LINES)
+    {
+      webLogs.pop_front();
+    }
+    xSemaphoreGive(xLogMutex);
+  }
+
+  // Дублируем в аппаратный Serial
+  Serial.println(timeStr + text);
+}
+
 void showSensVal() //  for TEST!
 {
   for (int i = 0; i < SensUnit; i++)
@@ -100,25 +137,6 @@ void showSensVal() //  for TEST!
     Serial.println(vSensVal[i].actual);
   }
 }
-
-// print time to serial
-/*void printLocalTime()
-{
-  struct tm timeinfo;
-  static const char *TAG = "LocalTime";
-  char tbuffer[80];
-  if (getLocalTime(&timeinfo))
-  {
-    strftime(tbuffer, 80, " %d %b %Y   %H:%M:%S", &timeinfo);
-    ESP_LOGI(TAG, " %s", tbuffer);
-  }
-  else
-  {
-    ESP_LOGD(TAG, "** Failed to obtain time **");
-    // return;
-  }
-}
-*/
 
 void printLocalTime()
 {
@@ -442,38 +460,6 @@ static void vfnPirTask(void *vpArg)
 
 #pragma region Wifi
 
-//log to web
-/*
-// Настройки лога
-const size_t MAX_LOG_LINES = 25; // Храним только последние 25 строк
-std::deque<String> webLogs;       // Очередь строк лога
-SemaphoreHandle_t xLogMutex = xSemaphoreCreateMutex(); // Мьютекс защиты логов
-
-// Функция добавления новой записи в лог (вызывать вместо или вместе с Serial.println)
-
-void logToWeb(String text) {
-    struct tm timeinfo;
-    char timeBuf[12];
-    String timeStr = "";
-    
-    // Добавляем штамп времени к логу, если оно синхронизировано
-    if (getLocalTime(&timeinfo) && timeinfo.tm_year > 120) {
-        strftime(timeBuf, sizeof(timeBuf), "[%H:%M:%S] ", &timeinfo);
-        timeStr = String(timeBuf);
-    }
-
-    if (xLogMutex != NULL && xSemaphoreTake(xLogMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        webLogs.push_back(timeStr + text); // Добавляем строку в конец
-        
-        // Если превысили лимит — удаляем самую старую строку из начала
-        if (webLogs.size() > MAX_LOG_LINES) {
-            webLogs.pop_front();
-        }
-        xSemaphoreGive(xLogMutex);
-    }
-}
-*/
-
 // ==WIFI ================
 void setup_wifi()
 {
@@ -484,8 +470,8 @@ void setup_wifi()
   vTaskDelay(10); // delay(10);
   ESP_LOGI(TAG, "Connecting to %s", CONF_SSID);
 
- // WiFi.begin(ssid, password);
- WiFi.begin(CONF_SSID, CONF_PASSWORD);
+  // WiFi.begin(ssid, password);
+  WiFi.begin(CONF_SSID, CONF_PASSWORD);
 
   // если за 5*500 не подключился - прекратить
   int wifiCounter = 0;
@@ -562,14 +548,14 @@ void vWifiWatchdogTask(void *pvParameters)
 
 void setup()
 {
-/*
-  // ОТКЛЮЧАЕМ ДЕТЕКТОР ПРОСАДОК (для старых версий ядер ESP32)
-  // В зависимости от версии вашей библиотеки, регистр называется либо так:
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+  /*
+    // ОТКЛЮЧАЕМ ДЕТЕКТОР ПРОСАДОК (для старых версий ядер ESP32)
+    // В зависимости от версии вашей библиотеки, регистр называется либо так:
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
-  // Либо если выдаст ошибку, раскомментируйте строку ниже, а верхнюю удалите:
-  // WRITE_PERI_REG(RTC_CNTL_BROWNOUT_REG, 0);
-*/
+    // Либо если выдаст ошибку, раскомментируйте строку ниже, а верхнюю удалите:
+    // WRITE_PERI_REG(RTC_CNTL_BROWNOUT_REG, 0);
+  */
 
   M5.begin(true, false, true, true);
   Serial.begin(115200);
@@ -588,22 +574,15 @@ void setup()
   {
     Serial.println("[ERROR] Не удалось создать мьютекс датчиков!");
   }
+  // Создаем мьютекс для логов
+  xLogMutex = xSemaphoreCreateMutex();
 
   ESP_LOGI(TAG, "===Starting...====");
 
   startTime = millis();
 
   setup_wifi();
-  /* if (bConnWiFi)
-   {
-     // init ntp
-     long gmtOffset_sec = 0;
-     gmtOffset_sec = TIMEZONE * 3600;
-     configTime(gmtOffset_sec, daylightOffset_sec, ntpServerName);
-     // print time
-     printLocalTime();
-   }
-   */
+
   // ИСПРАВЛЕНИЕ NTP: Настраиваем параметры времени асинхронно
   long gmtOffset_sec = TIMEZONE * 3600;
   // 1. Задаем колбэк, который сообщит нам, когда время станет валидным
@@ -710,8 +689,7 @@ void setup()
   pxShowTimeSemaphore = xSemaphoreCreateBinary();
   xTaskCreate(vfnShowTime, "Show time on screen", 2048, NULL, 10, NULL);
 
-  // xTaskCreate(vfnWifiSrv, "WiFi Web server", 4096, NULL, 5, NULL);     //к удалению (устарело)
-  // xTaskCreatePinnedToCore(vfnWifiSrv, "WiFi Web server", 4096, NULL, 5, NULL, 0);      //к удалению (устарело)
+  // http server
   xTaskCreatePinnedToCore(vHttpServerTask, "WiFi Web server", 4096, NULL, 5, NULL, 0);
 
   // Core watchDog

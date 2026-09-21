@@ -5,7 +5,16 @@
 #include <esp_task_wdt.h>
 #include "strct.h"    // Подключаем вашу структуру датчиков
 #include "settings.h" // Подключаем настройки (SensUnit)
-#include <ESPmDNS.h> 
+#include <ESPmDNS.h>
+
+#undef min
+#undef max
+#include <deque>
+
+// Указываем компилятору, что логи и мьютекс физически живут в main.cpp
+extern std::deque<String> webLogs;
+extern SemaphoreHandle_t xLogMutex;
+extern void logToWeb(String text);
 
 // Указываем компилятору, что эти объекты созданы в main.cpp
 extern stSens vSensVal[SensUnit];
@@ -40,12 +49,13 @@ void handleRoot()
     html += "td { border: none; padding: 10px; }";
     html += ".actual { color: black; font-weight: bold; background-color: #e3e3e3; padding: 1px; }";
     html += ".not_actual { color: #DCDCDC; font-weight: normal; background-color: white; padding: 1px; }";
-    html += "</style></head><body>";
+    html += ".btn { display: inline-block; padding: 10px 20px; margin-top: 20px; background-color: #333; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; }";
+    html += ".btn:hover { background-color: #555; }</style></head><body>";
 
     html += "<title>M5Stack Метеостанция</title>";
-    html += "<h1>Мониторинг Датчиков</h1>";
+    html += "<h1>ESP32 sensors</h1>";
 
-        html += "<div class=\"card\">";
+    html += "<div class=\"card\">";
     if (getLocalTime(&timeinfo))
     {
         html += "on time ";
@@ -74,6 +84,7 @@ void handleRoot()
     {
 
         html += "<table><tr><th>#</th><th>Name</th><th>VALUE</th><th>Unit</th></tr>";
+
         for (int i = 0; i < SensUnit; i++)
         {
             if (vSensVal[i].actual)
@@ -84,16 +95,17 @@ void handleRoot()
             {
                 html += "<tr class=\"not_actual\"><td>";
             }
-            html += i;
+            html += String(i);
             html += "</td><td>";
             html += vSensVal[i].name;
             html += "</td><td>";
-            html += vSensVal[i].value;
+            html += String(vSensVal[i].value, 2);
             html += "</td><td>";
             html += vSensVal[i].unit;
             html += "</td></span></tr>";
-            vTaskDelay(5);
+            // vTaskDelay(5);
         }
+        html += "</table>";
 
         xSemaphoreGive(xSensorsMutex); // Прочитали? Сразу отдаем ключ обратно!
     }
@@ -102,24 +114,76 @@ void handleRoot()
         // Если датчики как раз сейчас пишут данные, вежливо просим пользователя обновить страницу
         html += "<p style='color:red;'>Данные обновляются, пожалуйста, обновите страницу через секунду...</p>";
     }
-    html += "</div>";
 
-    html += "</body></html>";
+    // Добавляем красивую кнопку перевода на страницу логов
+    html += "<a href=\"/logs\" class=\"btn\">Открыть системный лог</a>";
+    html += "</div></body></html>";
 
     // Отправляем HTTP-ответ 200 OK
     wserv.send(200, "text/html", html);
 }
-// Обработчик для несуществующих страниц (Ошибка 404)
-/* handleMetrics
+
+// 2. ОТДЕЛЬНАЯ СТРАНИЦА ЛОГОВ (/logs)
+void handleLogs()
+{
+    String html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">";
+    html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+    html += "<title>Системный журнал</title>";
+    html += "<style>body { background-color: #121212; color: #00ff00; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }";
+    html += ".console { background-color: #000000; border: 1px solid #333; padding: 15px; border-radius: 5px; height: 75vh; overflow-y: auto; text-align: left; white-space: pre-wrap; line-height: 1.4; font-size: 14px; }";
+    html += ".header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #fff; font-family: Arial, sans-serif; }";
+    html += ".btn { padding: 8px 16px; background-color: #0043af; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; }";
+    html += ".btn:hover { background-color: #005be3; }</style></head><body>";
+
+    html += "<div class=\"header\">";
+    html += "<h2>System Live Log</h2>";
+    html += "<div>";
+    html += "<a href=\"/\" class=\"btn\" style=\"margin-right:10px; background-color:#333;\">На главную</a>";
+    html += "<a href=\"/logs\" class=\"btn\">Обновить</a>";
+    html += "</div></div>";
+
+    html += "<div class=\"console\" id=\"consoleBlock\">";
+
+    // Считываем буфер логов под защитой мьютекса
+    if (xLogMutex != NULL && xSemaphoreTake(xLogMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+    {
+        if (webLogs.empty())
+        {
+            html += "Журнал пуст. Ждем событий...<br>";
+        }
+        else
+        {
+            for (const auto &logLine : webLogs)
+            {
+                html += logLine + "\n";
+            }
+        }
+        xSemaphoreGive(xLogMutex);
+    }
+    else
+    {
+        html += "Ошибка доступа к буферу журнала...<br>";
+    }
+
+    html += "</div>";
+
+    // Небольшой JavaScript-скрипт, чтобы консоль при загрузке автоматически прокручивалась вниз к свежим логам
+    html += "<script>var c=document.getElementById('consoleBlock');c.scrollTop=c.scrollHeight;</script>";
+    html += "</body></html>";
+
+    wserv.send(200, "text/html", html);
+}
+
+// Обработчик для  Metrics
+/*
 void handleMetrics() {
     String metrics = "";
     if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         for (int i = 0; i < SensUnit; i++) {
             if (vSensVal[i].actual && vSensVal[i].mqttId.length() > 1) {
-                String metricName = vSensVal[i].mqttId;
-                metrics += "# HELP " + metricName + " " + vSensVal[i].name + "\n";
-                metrics += "# TYPE " + metricName + " gauge\n";
-                metrics += metricName + " " + String(vSensVal[i].value, 4) + "\n";
+                metrics += "# HELP " + vSensVal[i].mqttId + " " + vSensVal[i].name + "\n";
+                metrics += "# TYPE " + vSensVal[i].mqttId + " gauge\n";
+                metrics += vSensVal[i].mqttId + " " + String(vSensVal[i].value, 4) + "\n";
             }
         }
         xSemaphoreGive(xSensorsMutex);
@@ -129,11 +193,7 @@ void handleMetrics() {
 */
 void handleNotFound()
 {
-    String message = "404 Not Found\n\n";
-    message += "URI: " + wserv.uri() + "\nMethod: ";
-    message += (wserv.method() == HTTP_GET) ? "GET" : "POST";
-
-    wserv.send(404, "text/plain", message);
+    wserv.send(404, "text/plain", "404 Not Found");
 }
 
 void vHttpServerTask(void *pvParameters)
@@ -141,12 +201,14 @@ void vHttpServerTask(void *pvParameters)
     Serial.println("[RTOS WebServer] Таска HTTP-сервера стартует");
     static const char *TAG = "http_server";
 
-       // 1. Инициализируем mDNS-респондер 
+    // 1. Инициализируем mDNS-респондер
     // Переменная hostname должна быть доступна (через extern или из settings.h)
-    if (!MDNS.begin(CONF_HOSTNAME)) {
+    if (!MDNS.begin(CONF_HOSTNAME))
+    {
         ESP_LOGE(TAG, "Error setting up MDNS responder!");
-        while (1) {
-            vTaskDelay(pdMS_TO_TICKS(1000)); 
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
     ESP_LOGI(TAG, "mDNS responder started");
@@ -154,18 +216,18 @@ void vHttpServerTask(void *pvParameters)
 
     // Инициализация путей...
     wserv.on("/", handleRoot);
-    // wserv.on("/metrics", handleMetrics);
+    wserv.on("/logs", handleLogs); // Регистрация эндпоинта новой страницы логов
+                                   // wserv.on("/metrics", handleMetrics);
     wserv.onNotFound(handleNotFound);
 
     //  объявляем в сеть, что у нас крутится HTTP-сервер
     MDNS.addService("http", "tcp", 80);
-    // доменное имя
-    // MDNS.begin(hostname);
 
     // старт сервера
     wserv.begin();
     ESP_LOGI(TAG, "HTTP server started");
     Serial.println("[RTOS WebServer] WebServer успешно слушает порт 80");
+    logToWeb("System initialized. Web server online."); // Первая тестовая запись
 
     //  Регистрируем ТЕКУЩУЮ таску в системе Watchdog
     esp_task_wdt_add(NULL);
