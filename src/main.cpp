@@ -1,10 +1,14 @@
 /*  план.
  * на потом:
+ *
  *   - вынести сервер  http в отдельный файл.
  *   - разобраться с логами и вывести в http
- *   - закрыть мьютексами экран и получение данных
+ *   - закрыть мьютексами экран
  *   - доработать вывод на экран, чтоб данные помещались все
  * -----
+ * сделано:
+ *  + watchdog на сеть - если нет роутера, то переподключиться
+ *  - закрыть мьютексами   получение данных
  * таски:
  *  - получить данные с датчиков /функцией. возможно потом будет таском, но надо будет прописать мьютекс/
  *  - вывести на экран данные - vfnvShowData
@@ -24,28 +28,43 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_task_wdt.h>
 #include <driver/gpio.h>
 #include <M5Stack.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 #include <esp_log.h>
 #include <Arduino.h>
 #include "sdkconfig.h"
 
 #include "settings.h"
+//#include <deque> // Удобный стандартный контейнер C++ для очередей
+#include "wifi_server.h" // Подключаем созданный модуль сервера http
 #include "strct.h"
 stSens vSensVal[SensUnit];
+
+// Хэндл мьютекса для защиты массива vSensVal
+SemaphoreHandle_t xSensorsMutex = NULL;
 
 #include "sensors.h"
 
 #include <WiFi.h>
+//#include <WebServer.h>
+// WiFiServer wserv(80);  //к удалению (устарело)
+//WebServer wserv(80);
+TaskHandle_t httpTaskHandle = NULL; // Хэндл управления таской сервера
+
 #include <WiFiClient.h>
 #include <ESPmDNS.h>
-WiFiServer wserv(80);
+
 boolean bConnWiFi = false;
 struct tm timeinfo;
 
 #include <PubSubClient.h>
 WiFiClient wifiClient;
-PubSubClient mqttClient(mqttServer, 1883, wifiClient);
+PubSubClient mqttClient(CONF_MQTT_SERVER, 1883, wifiClient);
+
+#include "esp_sntp.h" // Нужен для контроля статуса синхронизации NTP
 
 #include "OutToScr.h"
 
@@ -83,7 +102,7 @@ void showSensVal() //  for TEST!
 }
 
 // print time to serial
-void printLocalTime()
+/*void printLocalTime()
 {
   struct tm timeinfo;
   static const char *TAG = "LocalTime";
@@ -99,6 +118,40 @@ void printLocalTime()
     // return;
   }
 }
+*/
+
+void printLocalTime()
+{
+  struct tm timeinfo;
+  static const char *TAG = "LocalTime";
+  char tbuffer[80];
+
+  // Пытаемся считать локальное время
+  if (getLocalTime(&timeinfo))
+  {
+    // Если год в системе больше 120 (считается от 1900 года, то есть 1900 + 120 = 2020 год)
+    if (timeinfo.tm_year > 120)
+    {
+      strftime(tbuffer, 80, "%d %b %Y %H:%M:%S", &timeinfo);
+      ESP_LOGI(TAG, "Валидное время: %s", tbuffer);
+    }
+    else
+    {
+      ESP_LOGD(TAG, "[Waiting NTP] Время в системе дефолтное (1970 год), ждем синхронизации...");
+    }
+  }
+  else
+  {
+    ESP_LOGE(TAG, "Не удалось считать структуру времени!");
+  }
+}
+
+// Функция-колбэк: вызывается автоматически при успешной синхронизации времени
+void timeSyncCallback(struct timeval *tv)
+{
+  Serial.println("[NTP] Время успешно синхронизировано с сервером интернета!");
+  printLocalTime(); // Выводим время в консоль для проверки
+}
 
 bool NarodmonTcpPublish()
 {
@@ -107,7 +160,7 @@ bool NarodmonTcpPublish()
 
   String buf;
   String mac = "30:AE:A4:69:B9:04";
-//  String mac = "30AEA469B904";
+  //  String mac = "30AEA469B904";
   buf = "#" + mac + "\n"; // заголовок
   for (int i = 0; i < SensUnit; i++)
   {
@@ -118,11 +171,11 @@ bool NarodmonTcpPublish()
   }
   buf = buf + "##\n"; // закрываем пакет
 
-  //Serial.println(buf);      //TEST
-  //ESP_LOGD(TAG, "string to site: %s", buf);  //спец.символы не ест
+  // Serial.println(buf);      //TEST
+  // ESP_LOGD(TAG, "string to site: %s", buf);  //спец.символы не ест
 
-   if (!client.connect("narodmon.ru", 8283)) // попытка подключения
-  //if (!client.connect("127.0.0.1", 8283)) // попытка подключения  test
+  if (!client.connect("narodmon.ru", 8283)) // попытка подключения
+  // if (!client.connect("127.0.0.1", 8283)) // попытка подключения  test
   {
     ESP_LOGD(TAG, "Connecting failed");
     client.stop();
@@ -138,7 +191,7 @@ bool NarodmonTcpPublish()
       ESP_LOGD(TAG, "string from site: %s", line);
     }
     client.stop();
-    return true; //ушло
+    return true; // ушло
   }
 }
 
@@ -151,8 +204,8 @@ void MqttPublish() // narodmon mqtt больше бесплатно не пон�
   // если не подключен, то подключаемся.
   if (!!!mqttClient.connected())
   {
-    ESP_LOGI(TAG, "Reconnecting client to %s", mqttServer);
-    while (!!!mqttClient.connect(clientId, authMethod, token, conntopic, 0, 0, "online"))
+    ESP_LOGI(TAG, "Reconnecting client to %s", CONF_MQTT_SERVER);
+    while (!!!mqttClient.connect(CONF_CLIENT_ID, CONF_AUTH_METHOD, CONF_TOKEN, CONF_CONN_TOPIC, 0, 0, "online"))
     {
       vTaskDelay(500);
       count_reconnect++;
@@ -163,7 +216,7 @@ void MqttPublish() // narodmon mqtt больше бесплатно не пон�
         // ESP.restart();
       }
     }
-    ESP_LOGI(TAG, "Connecting to %s with: id %s, auth %s, token %s", mqttServer, clientId, authMethod, token);
+    ESP_LOGI(TAG, "Connecting to %s with: id %s, auth %s, token %s", CONF_MQTT_SERVER, CONF_CLIENT_ID, CONF_AUTH_METHOD, CONF_TOKEN);
   }
 
   for (int i = 0; i < SensUnit; i++)
@@ -171,7 +224,7 @@ void MqttPublish() // narodmon mqtt больше бесплатно не пон�
     if (vSensVal[i].actual & (vSensVal[i].mqttId.length() > 1))
     {
       String topic = TOPIC;
-      String payload = String(vSensVal[i].value, 1);                  //значение строкой
+      String payload = String(vSensVal[i].value, 1);                  // значение строкой
       topic.concat(vSensVal[i].mqttId);                               // topic+id
       if (mqttClient.publish(topic.c_str(), (char *)payload.c_str())) // если опубликовано
       {
@@ -193,8 +246,23 @@ void vfnvShowData(void *vpArg)
   {
     xSemaphoreTake(pxShowDataSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
     ESP_LOGD(TAG, "Task show data");
-    getSensData(vSensVal); // получить данные
-    OutToScr(vSensVal);    //показать данные
+    // --- ЗАЩИТА МЬЮТЕКСОМ ---
+    // Пытаемся взять мьютекс, ждем максимум 100 мс
+    if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
+
+      getSensData(vSensVal); // Безопасно получаем-записываем новые данные
+      OutToScr(vSensVal);    // Безопасно выводим их на дисплей M5Stack
+
+      xSemaphoreGive(xSensorsMutex); // Обязательно освобождаем!
+    }
+    else
+    {
+      ESP_LOGW(TAG, "Не удалось обновить экран: данные заняты другой таской");
+    }
+
+    // getSensData(vSensVal); // получить данные 4del
+    // OutToScr(vSensVal);    // показать данные 4del
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL);
@@ -229,19 +297,39 @@ static void vfnTimerTask(void *vpArg)
   static const char *TAG = "timer";
   while (1)
   {
-    xSemaphoreTake(pxTimerSemaphore, portMAX_DELAY); //ожидаем семафор бесконечно долго (portMAX_DELAY)
-    ESP_LOGD(TAG, "Timer interrupt now");            //сюда попадаем только если есть семафор
+    xSemaphoreTake(pxTimerSemaphore, portMAX_DELAY); // ожидаем семафор бесконечно долго (portMAX_DELAY)
+    esp_task_wdt_reset();                            // кормим собаку - ватчдог ядра
+    ESP_LOGD(TAG, "Timer interrupt now");            // сюда попадаем только если есть семафор
 
     printLocalTime();
-    getSensData(vSensVal); // считать данные
-    //отправить данные на narodmon (семафор для таска?) если wifi подключен
-    if (bConnWiFi)             
-      // MqttPublish();
+
+    // --- ЗАЩИТА ЗАПИСИ ---
+    // Ждем освобождения мьютекса максимум 100 мс (не блокируем таску намертво)
+    if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    {
+      getSensData(vSensVal);         // Спокойно пишем данные в массив, никто нам не помешает
+      xSemaphoreGive(xSensorsMutex); // Обязательно освобождаем мьютекс!
+    }
+    else
+    {
+      ESP_LOGW(TAG, "Не удалось получить доступ для записи данных (занято сервером)");
+    }
+
+    // getSensData(vSensVal); // считать данные
+    //  отправить данные на narodmon (семафор для таска?) если wifi подключен
+    if (bConnWiFi)
+    {
+      esp_task_wdt_reset(); // Кормим ПЕРЕД отправкой т.к. может затянуться
+      // MqttPublish();   // 4test
       NarodmonTcpPublish();
-    //запусить прогрев датчиков (семафор для таска?)
-    // Если влажность (HTU_e_humi или SHT_e_humi) >70% - прогреть
+      esp_task_wdt_reset(); // Кормим СРАЗУ ПОСЛЕ отправки
+    }
+    // запусить прогрев датчиков (семафор для таска?)
+    //  Если влажность (HTU_e_humi или SHT_e_humi) >70% - прогреть
     if (vSensVal[8].value > 70.0 || vSensVal[10].value > 70.0)
+    {
       heatSens();
+    }
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL); // remove the task whene done
@@ -261,7 +349,7 @@ static void IRAM_ATTR vfnButtonISR(void *vpArg)
   ***/
   uint32_t ulGPIONumber = (uint32_t)vpArg;           // get the triggering GPIO
                                                      // ESP_LOGD(TAG, "ISR GPIO %d is %d",ulGPIONumber,gpio_get_level((gpio_num_t)ulGPIONumber)); // ****** TEST *** УБРАТЬ!****
-  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 0) //по нажатию
+  if (gpio_get_level((gpio_num_t)ulGPIONumber) == 0) // по нажатию
   {
     xTaskNotifyFromISR(xButtonHandle,     // task to notify
                        ulGPIONumber - 37, // 32 bit integer for passing a value
@@ -318,7 +406,7 @@ static void vfnButtonTask(void *vpArg)
         ESP_LOGD(TAG, "==button 2==");
         printLocalTime();
         showSensVal(); // TEST!
-        //NarodmonTcpPublish();  // ****************TEST**********
+        // NarodmonTcpPublish();  // ****************TEST**********
         break;
       default:
         ESP_LOGD(TAG, "This should not happen...");
@@ -332,13 +420,13 @@ static void vfnButtonTask(void *vpArg)
 
 static void vfnPirTask(void *vpArg)
 {
-  uint32_t ulNotifiedValue = 0; //получаем, но не используем
+  uint32_t ulNotifiedValue = 0; // получаем, но не используем
   BaseType_t xResult;
 
   while (1)
   {
     xResult = xTaskNotifyWait(pdFALSE, 0xFFFFFFFF, &ulNotifiedValue, portMAX_DELAY);
-    if ((xResult == pdPASS) && (millis() - isrPirTime > 5000ul) && (millis() > 3000ul)) //если прерывание и прошло достаточно от прошлого и задержка на активацию датчика
+    if ((xResult == pdPASS) && (millis() - isrPirTime > 5000ul) && (millis() > 3000ul)) // если прерывание и прошло достаточно от прошлого и задержка на активацию датчика
     {
       ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
       ESP_LOGD(TAG, "give semaphore data");
@@ -352,6 +440,40 @@ static void vfnPirTask(void *vpArg)
 
 #pragma endregion
 
+#pragma region Wifi
+
+//log to web
+/*
+// Настройки лога
+const size_t MAX_LOG_LINES = 25; // Храним только последние 25 строк
+std::deque<String> webLogs;       // Очередь строк лога
+SemaphoreHandle_t xLogMutex = xSemaphoreCreateMutex(); // Мьютекс защиты логов
+
+// Функция добавления новой записи в лог (вызывать вместо или вместе с Serial.println)
+
+void logToWeb(String text) {
+    struct tm timeinfo;
+    char timeBuf[12];
+    String timeStr = "";
+    
+    // Добавляем штамп времени к логу, если оно синхронизировано
+    if (getLocalTime(&timeinfo) && timeinfo.tm_year > 120) {
+        strftime(timeBuf, sizeof(timeBuf), "[%H:%M:%S] ", &timeinfo);
+        timeStr = String(timeBuf);
+    }
+
+    if (xLogMutex != NULL && xSemaphoreTake(xLogMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        webLogs.push_back(timeStr + text); // Добавляем строку в конец
+        
+        // Если превысили лимит — удаляем самую старую строку из начала
+        if (webLogs.size() > MAX_LOG_LINES) {
+            webLogs.pop_front();
+        }
+        xSemaphoreGive(xLogMutex);
+    }
+}
+*/
+
 // ==WIFI ================
 void setup_wifi()
 {
@@ -360,9 +482,10 @@ void setup_wifi()
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   vTaskDelay(10); // delay(10);
-  ESP_LOGI(TAG, "Connecting to %d", ssid);
+  ESP_LOGI(TAG, "Connecting to %s", CONF_SSID);
 
-  WiFi.begin(ssid, password);
+ // WiFi.begin(ssid, password);
+ WiFi.begin(CONF_SSID, CONF_PASSWORD);
 
   // если за 5*500 не подключился - прекратить
   int wifiCounter = 0;
@@ -384,168 +507,70 @@ void setup_wifi()
   randomSeed(micros()); //  ????
 
   bConnWiFi = true;
-  ESP_LOGI(TAG, "WiFi connected. IP address: %d", WiFi.localIP());
-
-  // use mDNS for host name resolution  https://espressif.github.io/esp-protocols/mdns/en/index.html
-  if (!MDNS.begin(hostname))
-  {
-    ESP_LOGD(TAG, "Error setting up MDNS responder!");
-    while (1)
-    {
-      vTaskDelay(1000); // delay(1000);
-    }
-  }
-  ESP_LOGI(TAG, "mDNS responder started");
-
-  // Start TCP (HTTP) server
-  wserv.begin();
-  ESP_LOGI(TAG, "HTTP server started");
-
-  // Add service to MDNS-SD
-  MDNS.addService("http", "tcp", 80);
+  ESP_LOGI(TAG, "WiFi connected. IP address: %s", WiFi.localIP().toString().c_str());
 }
 
-void vfnWifiSrv(void *vpArg)
+TaskHandle_t wifiWatchdogTaskHandle = NULL;
+
+void vWifiWatchdogTask(void *pvParameters)
 {
-  unsigned long upTime_sec = 0;
-  int upTime_d = 0;
-  int upTime_h = 0;
-  int upTime_m = 0;
-  int upTime_s = 0;
+  Serial.println("[RTOS] Таска контроля Wi-Fi связи запущена на Ядре 1");
 
-  String header;
-  while (1)
+  // Переменная для подсчета неудачных проверок
+  int disconnectCount = 0;
+
+  for (;;)
   {
-    WiFiClient client = wserv.available(); // Ждем подключения пользователя
+    // Проверяем физический статус подключения к роутеру
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      bConnWiFi = false;
+      disconnectCount++;
+      Serial.printf("[WIFI WATCHDOG] Связь потеряна! Попытка %d из 3...\n", disconnectCount);
 
-    if (client)
-    { // Если есть подключение
-      currentTime = millis();
-      if (previousTime < currentTime)
+      // Если связь отсутствует уже более  3 проверки по минуте)
+      if (disconnectCount >= 3)
       {
-        previousTime = currentTime;
-        upTime_sec = (currentTime - startTime) / 1000ul;    // ms->s
-        upTime_d = (upTime_sec / 24ul / 3600ul);            //дни
-        upTime_h = (upTime_sec / 3600ul - upTime_d * 24ul); // часы
-        upTime_m = (upTime_sec % 3600ul) / 60ul;            // минуты
-        upTime_s = (upTime_sec % 3600ul) % 60ul;            // секунды
+        Serial.println("[WIFI WATCHDOG] Долгий обрыв связи. Жесткий перезапуск Wi-Fi...");
+
+        WiFi.disconnect();
+        vTaskDelay(pdMS_TO_TICKS(60000));
+        // Запускаем вашу функцию подключения заново (используем имя вашей функции из проекта)
+        // Если у вас авторизация вшита в setup, можно вызвать WiFi.begin(ssid, password);
+        WiFi.begin();
+
+        disconnectCount = 0; // Сбрасываем счетчик после попытки сброса
       }
-      else
-      {
-        // ***** обработать переход через 0 !!!
-        previousTime = currentTime;
-      }
-      Serial.println("New Client."); // выводим сообщение в монитор порта
-      String currentLine = "";       // создаем строку для хранения входящих данных
-      while (client.connected() && currentTime - previousTime <= timeoutTime)
-      { // выполняем программу, пока пользователь подключен
-        currentTime = millis();
-        if (client.available())
-        {                         // проверяем, есть ли входящее сообщение
-          char c = client.read(); // читаем и
-          Serial.write(c);        // выводим в монитор порта
-          header += c;
-          if (c == '\n')
-          { // если входящее сообщение – переход на новую строку (пустая строка)
-            // то считаем это концом HTTP запроса и выдаем ответ
-            if (currentLine.length() == 0)
-            {
-              // заголовок всегда начинается с ответа (например, HTTP/1.1 200 OK)
-              // добавляем тип файла ответа:
-              client.println("HTTP/1.1 200 OK");
-              client.println("Content-type:text/html");
-              client.println("Connection: close");
-              client.println();
-
-              // Выводим HTML-страницу
-              client.println("<!DOCTYPE html><html>");
-              client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
-              client.println("<link rel=\"icon\" href=\"data:,\">");
-              // Добавляем стили CSS
-              client.println("<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial;}");
-              client.println("table { border-collapse: collapse; width:35%; margin-left:auto; margin-right:auto; }");
-              client.println("th { padding: 12px; background-color: #0043af; color: white; }");
-              client.println("tr { border: 1px solid #C0C0C0; padding: 12px; }");
-              client.println("tr:hover { background-color: #bcbcbc; }");
-              client.println("td { border: none; padding: 12px; }");
-              //              client.println(".sensor { color: black; font-weight: bold; background-color: #e3e3e3; padding: 1px; }");
-              client.println(".actual { color: black; font-weight: bold; background-color: #e3e3e3; padding: 1px; }");
-              client.println(".not_actual { color: #DCDCDC; font-weight: normal; background-color: white; padding: 1px; }");
-
-              // Заголовок веб-страницы
-              client.println("</style></head><body><h1>ESP32 sensors</h1>");
-              if (getLocalTime(&timeinfo))
-              {
-                client.println("on time ");
-                client.println(&timeinfo);
-                client.println("</br>");
-              }
-              client.println("up time ");
-              client.println(upTime_sec);
-              client.println("sec (");
-              client.println(upTime_d);
-              client.println("days  ");
-              client.println(upTime_h);
-              client.println(":");
-              client.println(upTime_m);
-              client.println(":");
-              client.println(upTime_s);
-              client.println(")</br>");
-
-              client.println("<table><tr><th>#</th><th>Name</th><th>VALUE</th><th>Unit</th></tr>");
-              for (int i = 0; i < SensUnit; i++)
-              {
-                if (vSensVal[i].actual)
-                {
-                  client.println("<tr class=\"actual\"><td>");
-                }
-                else
-                {
-                  client.println("<tr class=\"not_actual\"><td>");
-                }
-                client.print(i);
-                client.println("</td><td>");
-                client.println(vSensVal[i].name);
-                client.println("</td><td>");
-                client.println(vSensVal[i].value);
-                client.println("</td><td>");
-                client.println(vSensVal[i].unit);
-                client.println("</td></span></tr>");
-                vTaskDelay(5);
-              }
-              client.println("</body></html>");
-
-              // Ответ HTTP также заканчивается пустой строкой
-              client.println();
-              // Прерываем выполнение программы
-              break;
-            }
-            else
-            { // если у нас есть новый запрос, очищаем строку
-              currentLine = "";
-            }
-          }
-          else if (c != '\r')
-          {                   // но, если отправляемая строка не пустая
-            currentLine += c; // добавляем ее в конец строки
-          }
-        }
-      }
-      // Очищаем заголовок
-      header = "";
-      // Сбрасываем соединение
-      client.stop();
-      Serial.println("Client disconnected.");
-      Serial.println("");
     }
-    vTaskDelay(500);
+    else
+    {
+      // Если связь есть — обнуляем счетчик брака
+      if (disconnectCount > 0)
+      {
+        Serial.println("[WIFI WATCHDOG] Связь с роутером успешно восстановлена.");
+        bConnWiFi = true;
+        disconnectCount = 0;
+      }
+    }
+
+    // Опрашиваем статус не слишком часто — раз в минуту
+    vTaskDelay(pdMS_TO_TICKS(60000));
   }
-  ESP_LOGD(TAG, "WiFi server Crash!");
-  vTaskDelete(NULL); // remove the task whene done
 }
+
+#pragma endregion
 
 void setup()
 {
+/*
+  // ОТКЛЮЧАЕМ ДЕТЕКТОР ПРОСАДОК (для старых версий ядер ESP32)
+  // В зависимости от версии вашей библиотеки, регистр называется либо так:
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
+  // Либо если выдаст ошибку, раскомментируйте строку ниже, а верхнюю удалите:
+  // WRITE_PERI_REG(RTC_CNTL_BROWNOUT_REG, 0);
+*/
+
   M5.begin(true, false, true, true);
   Serial.begin(115200);
   M5.Speaker.mute();
@@ -553,20 +578,40 @@ void setup()
   M5.Lcd.setBrightness(0);
   // m5.Lcd.setTextSize(3);
 
+  // Переопределяем частоту i2c на Fast-mode
+  Wire.setClock(400000);
+  Serial.println("[I2C] Частота шины переключена на 400 кГц");
+
+  // Создаем мьютекс защиты данных
+  xSensorsMutex = xSemaphoreCreateMutex();
+  if (xSensorsMutex == NULL)
+  {
+    Serial.println("[ERROR] Не удалось создать мьютекс датчиков!");
+  }
+
   ESP_LOGI(TAG, "===Starting...====");
 
   startTime = millis();
 
   setup_wifi();
-  if (bConnWiFi)
-  {
-    // init ntp
-    long gmtOffset_sec = 0;
-    gmtOffset_sec = TIMEZONE * 3600;
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServerName);
-    // print time
-    printLocalTime();
-  }
+  /* if (bConnWiFi)
+   {
+     // init ntp
+     long gmtOffset_sec = 0;
+     gmtOffset_sec = TIMEZONE * 3600;
+     configTime(gmtOffset_sec, daylightOffset_sec, ntpServerName);
+     // print time
+     printLocalTime();
+   }
+   */
+  // ИСПРАВЛЕНИЕ NTP: Настраиваем параметры времени асинхронно
+  long gmtOffset_sec = TIMEZONE * 3600;
+  // 1. Задаем колбэк, который сообщит нам, когда время станет валидным
+  sntp_set_time_sync_notification_cb(timeSyncCallback);
+  // 2. Инициализируем системную службу времени (она сама начнет стучаться на сервера, как только появится Wi-Fi)
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServerName);
+  delay(500); // на получение времени по ntp
+  printLocalTime();
 
 #pragma region hw interupt cfg
   ESP_LOGD(TAG, "set pin36-39");
@@ -657,6 +702,7 @@ void setup()
       (void *)NULL,  //* Parameter passed into the task.
       10,            //* Priority at which the task is created.
       &task2Handle); //* Used to pass out the created task's handle.
+
 #pragma endregion
 
   pxShowDataSemaphore = xSemaphoreCreateBinary();
@@ -664,8 +710,23 @@ void setup()
   pxShowTimeSemaphore = xSemaphoreCreateBinary();
   xTaskCreate(vfnShowTime, "Show time on screen", 2048, NULL, 10, NULL);
 
-  // start task wifi http server
-  xTaskCreate(vfnWifiSrv, "WiFi Web server", 2048, NULL, 10, NULL);
+  // xTaskCreate(vfnWifiSrv, "WiFi Web server", 4096, NULL, 5, NULL);     //к удалению (устарело)
+  // xTaskCreatePinnedToCore(vfnWifiSrv, "WiFi Web server", 4096, NULL, 5, NULL, 0);      //к удалению (устарело)
+  xTaskCreatePinnedToCore(vHttpServerTask, "WiFi Web server", 4096, NULL, 5, NULL, 0);
+
+  // Core watchDog
+  esp_task_wdt_init(15, true);
+
+  // Запускаем таску контроля Wi-Fi
+  xTaskCreatePinnedToCore(
+      vWifiWatchdogTask, // Функция таски
+      "WiFi_Watchdog",   // Имя для отладки
+      3072,              // Размер стека (3КБ вполне достаточно для проверки статуса)
+      NULL,              // Параметры
+      1,                 // Низкий приоритет (фоновая задача)
+      &wifiWatchdogTaskHandle,
+      1 // Строго на Ядре 1, где живет Wi-Fi стек
+  );
 
   // start sensors init
   ESP_LOGI(TAG, "start sensors init");
@@ -677,4 +738,4 @@ void setup()
   getSensData(vSensVal);
 }
 
-void loop(void) {}
+void loop() {}
