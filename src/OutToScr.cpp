@@ -5,6 +5,7 @@
 #define SCRDELAY 5000 // сколько показывать картинку
 // https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 // тут используется исправленный шрифт с новыми символами и русскими буквами. Возможность вывода в UTF8 не используется. Вывод посимвольно.
+// т.к. 1. utf занимает больше места 2. спецсимволы в utf не удалось отобразить.
 
 //+Ru(192-255)+up/down[0-9](133-152)+sym(155-159)
 #include "fonts/RobotoR16pt8b.h"
@@ -58,7 +59,7 @@ String TempToStr(float t)
   t2 = abs(T % 10);
   sym_t2 = sym_dnum[t2];
   if (t > 0)
-    strT = "+";
+    strT = "";
   else
     strT = "-";
   strT = strT + String(t1) + "," + String(char(sym_t2)) + " " + String(char(sym_gradC));

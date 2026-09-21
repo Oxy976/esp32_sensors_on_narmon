@@ -1,34 +1,23 @@
-// ==Network settings
-// --
-const char* hostname = "esp";
-const char* ssid = "xxx";
-const char* password = "xxx";
-// --
+#ifndef SETTINGS_H
+#define SETTINGS_H
 
-//M5
-// LED
-const int LED_BUILTIN = 15; //Onboard LED Pin (M5 fire)
+#define CONF_HOSTNAME      "esp"
+
+//  Wi-Fi  
+#define CONF_SSID          "xxx"
+#define CONF_PASSWORD      "xxx"
 
 
-// Time settings
-const char* ntpServerName = "pool.ntp.org";
-const int TIMEZONE=3;
-const int   daylightOffset_sec = 0;
+// NTP
+#define ntpServerName "pool.ntp.org"
+#define TIMEZONE 3
+#define daylightOffset_sec 0
 
-//==narmon
+#define CONF_MQTT_SERVER   "narodmon.ru"
+#define CONF_CLIENT_ID     "xxx" // MAC
+#define CONF_AUTH_METHOD   "xxx" //USERNAME
+#define CONF_TOKEN         "xx"  //PASS
+#define TOPIC  "login/xxx/"
+#define CONF_CONN_TOPIC    "status"  
 
-#define SRV   "narodmon.ru"
-#define MAC  "xxx"
-#define PASS  "xxx"
-#define USERNAME  "xxx"
-#define TOPIC  "login/xxx"
-
-//--
-
-//mqtt4narmon
-char mqttServer[] = SRV;
-char authMethod[] = USERNAME;
-char token[] = PASS;
-char clientId[] = MAC;
-char conntopic[] = TOPIC "status";
-
+#endif

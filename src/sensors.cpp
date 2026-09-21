@@ -1,5 +1,8 @@
 /*
  работа с датчиками - инициализация, получение данных
+
+ ### vSensVal[i].unit имеет значение только при инициализации соответствующего датчика. Или переписывать... ###
+   
 */
 
 #include "sensors.h"
@@ -73,7 +76,7 @@ float vHTU_e = 0.0;
 // float vHTU_e_humi = 0.0;
 
 //*** SHT31 ****
-#define SHT31_ADDRESS 0x44
+#define SHT31_ADDRESS 0x44        //used in driver!
 SHT31 sSHT_e;
 boolean bSHT_e = false;
 // float vSHT_e_temp = 0.0;
@@ -222,7 +225,8 @@ void startSens(stSens *vSensVal) // init sensors
         }
 
         // ***SHT31
-        if (!sSHT_e.begin(SHT31_ADDRESS))
+ //       if (!sSHT_e.begin(SHT31_ADDRESS)) 
+        if (!sSHT_e.begin())
         {
                 ESP_LOGD(TAG, "Could not find a valid SHT31 ext sensor---");
                 // Serial.println("*------> Could not find a valid SHT31 ext sensor, check wiring! ***!! ");
@@ -515,10 +519,13 @@ void getSensData(stSens *vSensVal) // read data from sensors
         }
 
 // ************************ TEST **********************
-//vSensVal[16].actual = true;
-//vSensVal[16].value = 333.33;
-//vSensVal[0].actual = true;
-//vSensVal[0].value = 88.88;
+vSensVal[16].actual = true;
+vSensVal[16].value = 333.33;
+vSensVal[16].unit = "ppm";
+vSensVal[7].actual = true;
+vSensVal[7].value = 88.88;
+vSensVal[0].actual = true;
+vSensVal[0].value = 88.88;
 // *******************************************
 }
 
