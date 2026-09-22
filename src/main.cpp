@@ -126,6 +126,8 @@ void showSensVal() //  for TEST!
 {
   for (int i = 0; i < SensUnit; i++)
   {
+    logToWeb(String(i)+" "+vSensVal[i].name+" "+String(vSensVal[i].value)+" "+vSensVal[i].unit+" "+String(vSensVal[i].actual));
+    /*
     Serial.print(i);
     Serial.print(" ");
     Serial.print(vSensVal[i].name);
@@ -135,6 +137,7 @@ void showSensVal() //  for TEST!
     Serial.print(vSensVal[i].unit);
     Serial.print(" ");
     Serial.println(vSensVal[i].actual);
+    */
   }
 }
 
@@ -155,19 +158,22 @@ void printLocalTime()
     }
     else
     {
-      ESP_LOGD(TAG, "[Waiting NTP] Время в системе дефолтное (1970 год), ждем синхронизации...");
+      ESP_LOGD(TAG, "[NTP] Время в системе дефолтное (1970 год), ждем синхронизации...");
+      logToWeb("[NTP] Время в системе дефолтное (1970 год), ждем синхронизации...");
     }
   }
   else
   {
-    ESP_LOGE(TAG, "Не удалось считать структуру времени!");
+    ESP_LOGE(TAG, "Ошибка получения времени времени!");
+    logToWeb("Ошибка получения времени времени!");
   }
 }
 
 // Функция-колбэк: вызывается автоматически при успешной синхронизации времени
 void timeSyncCallback(struct timeval *tv)
 {
-  Serial.println("[NTP] Время успешно синхронизировано с сервером интернета!");
+  //Serial.println("[NTP] Время успешно синхронизировано с сервером интернета!");
+  logToWeb("[NTP] Время успешно синхронизировано с сервером интернета!");
   printLocalTime(); // Выводим время в консоль для проверки
 }
 
@@ -196,17 +202,20 @@ bool NarodmonTcpPublish()
   // if (!client.connect("127.0.0.1", 8283)) // попытка подключения  test
   {
     ESP_LOGD(TAG, "Connecting failed");
+    logToWeb("[NMon] Connecting failed");
     client.stop();
     return false; // не удалось;
   }
   else
   {
     ESP_LOGI(TAG, "Connected to narodmon, sending data string");
+    logToWeb("[NMon] Connected to narodmon, sending data string");
     client.print(buf); // и отправляем данные
     while (client.available())
     {
       String line = client.readStringUntil('\r'); // если что-то в ответ будет
       ESP_LOGD(TAG, "string from site: %s", line);
+      logToWeb("[NMon] string from site: " + line);
     }
     client.stop();
     return true; // ушло
@@ -223,6 +232,7 @@ void MqttPublish() // narodmon mqtt больше бесплатно не пон�
   if (!!!mqttClient.connected())
   {
     ESP_LOGI(TAG, "Reconnecting client to %s", CONF_MQTT_SERVER);
+    logToWeb("[MQTT] Reconnecting client");
     while (!!!mqttClient.connect(CONF_CLIENT_ID, CONF_AUTH_METHOD, CONF_TOKEN, CONF_CONN_TOPIC, 0, 0, "online"))
     {
       vTaskDelay(500);
@@ -231,6 +241,7 @@ void MqttPublish() // narodmon mqtt больше бесплатно не пон�
       if (count_reconnect > 10)
       {
         ESP_LOGI(TAG, "problem with connecting to server !! **");
+        logToWeb("[MQTT] problem with connecting to server !! **");
         // ESP.restart();
       }
     }
@@ -406,21 +417,25 @@ static void vfnButtonTask(void *vpArg)
     if ((xResult == pdPASS) && (millis() - isrBtnTime > 100ul))
     {
       ESP_LOGD(TAG, "HW button interrupt now");
+      logToWeb("[GPIO_BTN]HW button interrupt now");
       isrBtnTime = millis();
 
       switch (ulNotifiedValue)
       {
       case 0:
+        // Показ даты-времени на экране
         ESP_LOGD(TAG, "==button 0==");
         ESP_LOGD(TAG, "give semaphore time");
         xSemaphoreGive(pxShowTimeSemaphore);
         break;
       case 1:
+      // Показ погодных показателей на экране
         ESP_LOGD(TAG, "==button 1==");
         ESP_LOGD(TAG, "give semaphore data");
         xSemaphoreGive(pxShowDataSemaphore);
         break;
       case 2:
+      // Значения датчиков - в лог
         ESP_LOGD(TAG, "==button 2==");
         printLocalTime();
         showSensVal(); // TEST!
@@ -468,7 +483,8 @@ void setup_wifi()
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   vTaskDelay(10); // delay(10);
-  ESP_LOGI(TAG, "Connecting to %s", CONF_SSID);
+  ESP_LOGI(TAG, "Connected to %s", CONF_SSID);
+  logToWeb("[WiFi] Connected to "+ String(CONF_SSID));
 
   // WiFi.begin(ssid, password);
   WiFi.begin(CONF_SSID, CONF_PASSWORD);
@@ -484,6 +500,7 @@ void setup_wifi()
     {
       // ESP.restart();
       ESP_LOGI(TAG, "** WiFi not connected! **");
+      logToWeb("[WiFi] ** WiFi not connected! **");
       bConnWiFi = false;
       WiFi.disconnect();
       return;
@@ -494,13 +511,15 @@ void setup_wifi()
 
   bConnWiFi = true;
   ESP_LOGI(TAG, "WiFi connected. IP address: %s", WiFi.localIP().toString().c_str());
+  logToWeb("[WiFi] connected. IP address: " + WiFi.localIP().toString());
 }
 
 TaskHandle_t wifiWatchdogTaskHandle = NULL;
 
 void vWifiWatchdogTask(void *pvParameters)
 {
-  Serial.println("[RTOS] Таска контроля Wi-Fi связи запущена на Ядре 1");
+  //Serial.println("[RTOS] Таска контроля Wi-Fi связи запущена на Ядре 1");
+  logToWeb("[RTOS] Таска контроля Wi-Fi связи запущена на Ядре 1");
 
   // Переменная для подсчета неудачных проверок
   int disconnectCount = 0;
@@ -512,12 +531,14 @@ void vWifiWatchdogTask(void *pvParameters)
     {
       bConnWiFi = false;
       disconnectCount++;
-      Serial.printf("[WIFI WATCHDOG] Связь потеряна! Попытка %d из 3...\n", disconnectCount);
+      //Serial.printf("[WIFI WATCHDOG] Связь потеряна! Попытка %d из 3...\n", disconnectCount);
+      logToWeb("[WIFI WATCHDOG] Связь потеряна! Попытка "+ String(disconnectCount)+" из 3" );
 
       // Если связь отсутствует уже более  3 проверки по минуте)
       if (disconnectCount >= 3)
       {
-        Serial.println("[WIFI WATCHDOG] Долгий обрыв связи. Жесткий перезапуск Wi-Fi...");
+        //Serial.println("[WIFI WATCHDOG] Долгий обрыв связи. Жесткий перезапуск Wi-Fi...");
+        logToWeb("[WIFI WATCHDOG] Долгий обрыв связи. Жесткий перезапуск Wi-Fi...");
 
         WiFi.disconnect();
         vTaskDelay(pdMS_TO_TICKS(60000));
@@ -533,7 +554,8 @@ void vWifiWatchdogTask(void *pvParameters)
       // Если связь есть — обнуляем счетчик брака
       if (disconnectCount > 0)
       {
-        Serial.println("[WIFI WATCHDOG] Связь с роутером успешно восстановлена.");
+        //Serial.println("[WIFI WATCHDOG] Связь с роутером успешно восстановлена.");
+        logToWeb("[WIFI WATCHDOG] Связь с роутером успешно восстановлена.");
         bConnWiFi = true;
         disconnectCount = 0;
       }
@@ -570,11 +592,7 @@ void setup()
 
   // Создаем мьютекс защиты данных
   xSensorsMutex = xSemaphoreCreateMutex();
-  if (xSensorsMutex == NULL)
-  {
-    Serial.println("[ERROR] Не удалось создать мьютекс датчиков!");
-  }
-  // Создаем мьютекс для логов
+   // Создаем мьютекс для логов
   xLogMutex = xSemaphoreCreateMutex();
 
   ESP_LOGI(TAG, "===Starting...====");
@@ -708,6 +726,7 @@ void setup()
 
   // start sensors init
   ESP_LOGI(TAG, "start sensors init");
+  logToWeb("start sensors init");
   startSens(vSensVal);
   vTaskDelay(10);
   xSemaphoreGive(pxShowTimeSemaphore);

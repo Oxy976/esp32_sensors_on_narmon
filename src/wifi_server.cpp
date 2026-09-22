@@ -6,6 +6,7 @@
 #include "strct.h"    // Подключаем вашу структуру датчиков
 #include "settings.h" // Подключаем настройки (SensUnit)
 #include <ESPmDNS.h>
+#include "sys_time.h"
 
 #undef min
 #undef max
@@ -29,62 +30,36 @@ extern TaskHandle_t httpTaskHandle;
 // http server -
 void handleRoot()
 {
-    struct tm timeinfo;
-    unsigned long upTime_sec = 0;
-    int upTime_d = 0;
-    int upTime_h = 0;
-    int upTime_m = 0;
-    int upTime_s = 0;
+   // 1. Обновляем переменные и получаем текущее время
+    updateSystemUptime(); 
+    String current_time = getSystemTimeStr();
 
-    // Собираем HTML-страницу, используя текущие данные из вашего массива vSensVal
+    // 2. Собираем строку аптайма по месту
+    String uptimeStr =  String(upTime_d) + "д "+String(upTime_h) + "ч " + String(upTime_m) + "м " + String(upTime_sec) + "с";
+    // 3. Формируем HTML страницу
     String html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">";
     html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
     html += "<link rel=\"icon\" href=\"data:,\">";
-    // Добавляем стили CSS
-    html += "<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial;}";
-    html += "table { border-collapse: collapse; width:35%; margin-left:auto; margin-right:auto; }";
-    html += "th { padding: 10px; background-color: #0043af; color: white; }";
-    html += "tr { border: 1px solid #C0C0C0; padding: 10px; }";
-    html += "tr:hover { background-color: #bcbcbc; }";
-    html += "td { border: none; padding: 10px; }";
-    html += ".actual { color: black; font-weight: bold; background-color: #e3e3e3; padding: 1px; }";
-    html += ".not_actual { color: #DCDCDC; font-weight: normal; background-color: white; padding: 1px; }";
-    html += ".btn { display: inline-block; padding: 10px 20px; margin-top: 20px; background-color: #333; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; }";
+
+    html += "<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial; background-color: #f4f6f9; margin: 8px; padding: 0; font-size: 14px; }";
+    html += "h1 { font-size: 18px; margin: 8px 0 2px 0; color: #333; }";                                                                                   // Уменьшили h1
+    html += "p { margin: 2px 0 10px 0; font-size: 12px; color: #666; }";                                                                                   // Компактное время
+    html += "table { border-collapse: collapse; width: 95%; max-width: 440px; margin: 0 auto; box-shadow: 0 2px 4px rgba(0,0,0,0.05); font-size: 13px; }"; // Ограничили ширину
+    html += "th { padding: 6px 8px; background-color: #0043af; color: white; font-size: 13px; }";                                                          // Плотный padding заголовков
+    html += "tr { border: 1px solid #C0C0C0; }";
+    html += "tr:hover { background-color: #e8e8e8; }";
+    html += "td { padding: 5px 8px; }"; // Минимальный плотный padding ячеек
+    html += ".actual { color: black; font-weight: bold; background-color: #ffffff; }";
+    html += ".not_actual { color: #A0A0A0; font-weight: normal; background-color: #fafafa; }";
+    html += ".btn { display: inline-block; padding: 6px 14px; margin-top: 12px; background-color: #333; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; font-family: Arial, sans-serif; }"; // Миниатюрная кнопка
     html += ".btn:hover { background-color: #555; }</style></head><body>";
 
-    html += "<title>M5Stack Метеостанция</title>";
-    html += "<h1>ESP32 sensors</h1>";
+    html += "<h1>ESP32 Метеостанция</h1>";
+    html += "<p>Время: " + current_time + " | Uptime: " + uptimeStr + "</p>";
+    html += "<table><tr><th>#</th><th>Параметр</th><th>Значение</th><th>Ед.</th></tr>";
 
-    html += "<div class=\"card\">";
-    if (getLocalTime(&timeinfo))
+    if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
     {
-        html += "on time ";
-
-        char timeBuffer[32];
-        // %d - день (01-31), %m - месяц (01-12), %Y - год (4 цифры)
-        // %H - часы (24ч), %M - минуты, %S - секунды
-        strftime(timeBuffer, sizeof(timeBuffer), "%d.%m.%Y %H:%M:%S", &timeinfo);
-        html += timeBuffer;
-        html += "</br>";
-    }
-    html += "up time ";
-    html += upTime_sec;
-    html += "sec (";
-    html += upTime_d;
-    html += "days  ";
-    html += upTime_h;
-    html += ":";
-    html += upTime_m;
-    html += ":";
-    html += upTime_s;
-    html += ")</br>";
-
-    // --- ЗАЩИТА ЧТЕНИЯ ---
-    if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-    {
-
-        html += "<table><tr><th>#</th><th>Name</th><th>VALUE</th><th>Unit</th></tr>";
-
         for (int i = 0; i < SensUnit; i++)
         {
             if (vSensVal[i].actual)
@@ -95,50 +70,58 @@ void handleRoot()
             {
                 html += "<tr class=\"not_actual\"><td>";
             }
-            html += String(i);
-            html += "</td><td>";
-            html += vSensVal[i].name;
-            html += "</td><td>";
-            html += String(vSensVal[i].value, 2);
-            html += "</td><td>";
-            html += vSensVal[i].unit;
-            html += "</td></span></tr>";
-            // vTaskDelay(5);
+            html += String(i) + "</td><td style=\"text-align: left;\">";                               // Выравнивание названия по левому краю для читаемости
+            html += vSensVal[i].name + "</td><td style=\"font-family: monospace; font-size: 14px;\">"; // Моноширинный шрифт для ровных цифр
+            html += String(vSensVal[i].value, 2) + "</td><td>";
+            html += vSensVal[i].unit + "</td></tr>";
         }
-        html += "</table>";
-
-        xSemaphoreGive(xSensorsMutex); // Прочитали? Сразу отдаем ключ обратно!
+        xSemaphoreGive(xSensorsMutex);
     }
     else
     {
-        // Если датчики как раз сейчас пишут данные, вежливо просим пользователя обновить страницу
-        html += "<p style='color:red;'>Данные обновляются, пожалуйста, обновите страницу через секунду...</p>";
+        html += "<tr><td colspan='4' style='color:red; padding: 10px;'>Данные обновляются...</td></tr>";
     }
 
-    // Добавляем красивую кнопку перевода на страницу логов
+    html += "</table>";
     html += "<a href=\"/logs\" class=\"btn\">Открыть системный лог</a>";
-    html += "</div></body></html>";
+    html += "</body></html>";
 
-    // Отправляем HTTP-ответ 200 OK
     wserv.send(200, "text/html", html);
 }
 
 // 2. ОТДЕЛЬНАЯ СТРАНИЦА ЛОГОВ (/logs)
 void handleLogs()
 {
+    // 1. Обновляем переменные и получаем текущее время
+    updateSystemUptime(); 
+    String current_time = getSystemTimeStr();
+
+    // 2. Собираем строку аптайма по месту
+    String uptimeStr =  String(upTime_d) + "д "+String(upTime_h) + "ч " + String(upTime_m) + "м " + String(upTime_sec) + "с";
+
+    // 3. Формируем HTML страницу
     String html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">";
     html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
     html += "<title>Системный журнал</title>";
-    html += "<style>body { background-color: #121212; color: #00ff00; font-family: 'Courier New', monospace; padding: 20px; margin: 0; }";
-    html += ".console { background-color: #000000; border: 1px solid #333; padding: 15px; border-radius: 5px; height: 75vh; overflow-y: auto; text-align: left; white-space: pre-wrap; line-height: 1.4; font-size: 14px; }";
-    html += ".header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; color: #fff; font-family: Arial, sans-serif; }";
-    html += ".btn { padding: 8px 16px; background-color: #0043af; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; }";
+
+    html += "<style>body { background-color: #121212; color: #00ff00; font-family: 'Courier New', monospace; padding: 15px; margin: 0; }";
+    html += ".console { background-color: #000000; border: 1px solid #333; padding: 15px; border-radius: 5px; height: 75vh; overflow-y: auto; text-align: left; white-space: pre-wrap; line-height: 1.4; font-size: 13px; }";
+    html += ".header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; color: #fff; font-family: Arial, sans-serif; border-bottom: 1px solid #222; padding-bottom: 8px; }";
+    html += ".header-title { text-align: left; }";
+    html += ".header h2 { margin: 0 0 4px 0; font-size: 18px; color: #ffffff; }";
+    html += ".meta-info { margin: 0; font-size: 12px; color: #e0e0e0; font-family: 'Courier New', monospace; }";
+    html += ".btn { padding: 5px 10px; font-size: 12px; background-color: #0043af; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-family: Arial, sans-serif; }";
     html += ".btn:hover { background-color: #005be3; }</style></head><body>";
 
     html += "<div class=\"header\">";
+    html += "<div class=\"header-title\">";
     html += "<h2>System Live Log</h2>";
+    // Выводим данные
+    html += "<p class=\"meta-info\">Время: " + current_time + " | Uptime: " + uptimeStr + "</p>";
+    html += "</div>";
+
     html += "<div>";
-    html += "<a href=\"/\" class=\"btn\" style=\"margin-right:10px; background-color:#333;\">На главную</a>";
+    html += "<a href=\"/\" class=\"btn\" style=\"margin-right:8px; background-color:#333;\">На главную</a>";
     html += "<a href=\"/logs\" class=\"btn\">Обновить</a>";
     html += "</div></div>";
 
@@ -198,7 +181,8 @@ void handleNotFound()
 
 void vHttpServerTask(void *pvParameters)
 {
-    Serial.println("[RTOS WebServer] Таска HTTP-сервера стартует");
+    // Serial.println("[RTOS WebServer] Таска HTTP-сервера стартует");
+    logToWeb("[RTOS WebServer] Таска HTTP-сервера стартует");
     static const char *TAG = "http_server";
 
     // 1. Инициализируем mDNS-респондер
@@ -212,7 +196,8 @@ void vHttpServerTask(void *pvParameters)
         }
     }
     ESP_LOGI(TAG, "mDNS responder started");
-    Serial.printf("[RTOS WebServer] mDNS responder started with name ", CONF_HOSTNAME);
+    // Serial.printf("[RTOS WebServer] mDNS responder started with name ", CONF_HOSTNAME);
+    logToWeb("[RTOS WebServer] mDNS responder started with name " + String(CONF_HOSTNAME));
 
     // Инициализация путей...
     wserv.on("/", handleRoot);
@@ -226,8 +211,8 @@ void vHttpServerTask(void *pvParameters)
     // старт сервера
     wserv.begin();
     ESP_LOGI(TAG, "HTTP server started");
-    Serial.println("[RTOS WebServer] WebServer успешно слушает порт 80");
-    logToWeb("System initialized. Web server online."); // Первая тестовая запись
+    // Serial.println("[RTOS WebServer] WebServer успешно слушает порт 80");
+    logToWeb("[RTOS WebServer] WebServer initialized, online.");
 
     //  Регистрируем ТЕКУЩУЮ таску в системе Watchdog
     esp_task_wdt_add(NULL);

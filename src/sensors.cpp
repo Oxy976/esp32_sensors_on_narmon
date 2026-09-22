@@ -534,13 +534,13 @@ void getSensData(stSens *vSensVal) // read data from sensors
         }
 
 // ************************ TEST **********************
-vSensVal[16].actual = true;
-vSensVal[16].value = 333.33;
-vSensVal[16].unit = "ppm";
-vSensVal[7].actual = true;
-vSensVal[7].value = 88.88;
-vSensVal[0].actual = true;
-vSensVal[0].value = 88.88;
+//vSensVal[16].actual = true;
+//vSensVal[16].value = 333.33;
+//vSensVal[16].unit = "ppm";
+//vSensVal[7].actual = true;
+//vSensVal[7].value = 88.88;
+//vSensVal[0].actual = true;
+//vSensVal[0].value = 88.88;
 // *******************************************
 }
 
