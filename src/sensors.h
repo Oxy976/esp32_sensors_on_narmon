@@ -10,8 +10,8 @@
 // I2C
 //Адрес на шине I2C для SHT21/HDC1080/HDC2080/HTU21D/Si7021 совпадает
 #include <Wire.h>                 // i2c lib
-#include "CG_RadSens.h"           // ***Geiger https://github.com/climateguard/RadSens
-//#include "radSens1v2.h"
+//#include "CG_RadSens.h"           // ***Geiger https://github.com/climateguard/RadSens // со старой платой не дружит!!
+#include "radSens1v2.h"
 #include <BME280I2C.h>  //https://github.com/finitespace/BME280
 #include <SHT2x.h>    //  https://github.com/RobTillaart/SHT2x  library for the SHT2x, HTU2x and Si70xx
 #include "SHT31.h"              // + SHT31 https://github.com/RobTillaart/SHT31

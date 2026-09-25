@@ -21,12 +21,11 @@ DallasTemperature sDS(&oneWire);
 DeviceAddress sensorAddress;
 
 boolean bDS = false;
-float vDS_fix = -0.8; // fix  data from sensor (°C)
 
 // ***Geiger
 // RadSens
-CG_RadSens sRadSens(RS_DEFAULT_I2C_ADDRESS); // Constructor of the class ClimateGuard_RadSens1v2,
-// ClimateGuard_RadSens1v2 sRadSens(RS_DEFAULT_I2C_ADDRESS);
+// CG_RadSens sRadSens(RS_DEFAULT_I2C_ADDRESS); // Constructor of the class ClimateGuard_RadSens1v2,
+ClimateGuard_RadSens1v2 sRadSens(RS_DEFAULT_I2C_ADDRESS);
 boolean bRAD = false; // b - датчик найден и инициализирован корректно
 int vNumPulse = 0;
 
@@ -63,7 +62,7 @@ float vHTU_e = 0.0;
 SHT31 sSHT_e(SHT31_ADDRESS);
 boolean bSHT_e = false;
 
-#define HEATTIME 2000 // сколько держать прогрев
+#define HEATTIME 7000 // сколько держать прогрев
 
 //*** SCD30  (углекислый газ)
 SCD30 sSCD30_i;
@@ -71,7 +70,14 @@ boolean bSCD30_i = false;
 
 String sC = "C";
 String GRAD = "\u00B0" + sC;
-//-----------------
+
+// ###################
+// переменные коррекции
+float fDS_Tfix = -0.8;   // fix  data from sensor (°C)
+float fBME_e_Tfix = 0.0; // fix  data from sensor (°C)
+float fHTU_e_Tfix = -1.5; // fix  data from sensor (°C)
+float fSHT_e_Tfix = -1.8; // fix  data from sensor (°C)
+// ####################
 
 // void SENSORS::startSens() // init sensors
 void startSens(stSens *vSensVal) // init sensors
@@ -143,8 +149,8 @@ void startSens(stSens *vSensVal) // init sensors
                 vSensVal[0].unit = GRAD;
         }
 
-        // if (!sRadSens.radSens_init())
-        if (!sRadSens.init())
+        if (!sRadSens.radSens_init())
+        // if (!sRadSens.init())
         {
                 ESP_LOGD(TAG, "--- RadSens not found ");
                 logToWeb("--- RadSens not found");
@@ -166,7 +172,6 @@ void startSens(stSens *vSensVal) // init sensors
                 ESP_LOGI(TAG, "HV generator state:  %d", sRadSens.getHVGeneratorState());
 
                 RADstartTime = millis();
-
 
                 vSensVal[1].unit = "mRg/h";
                 vSensVal[2].unit = "mRg/h";
@@ -339,7 +344,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 vTaskDelay(pdMS_TO_TICKS(10));
                 vSensVal[0].value = sDS.getTempC(sensorAddress); // read data
                 vTaskDelay(pdMS_TO_TICKS(10));
-                vSensVal[0].value += vDS_fix; // fix
+                vSensVal[0].value += fDS_Tfix; // fix
                 ESP_LOGD(TAG, "DS  Temp=%f", vSensVal[0].value);
 
                 // контроль корректности данных.
@@ -352,14 +357,36 @@ void getSensData(stSens *vSensVal) // read data from sensors
 
         if (bRAD)
         {
+                if (sRadSens.getData())
+                {
+                        vTaskDelay(pdMS_TO_TICKS(20));
+                        vSensVal[1].value = sRadSens.getRadIntensyDyanmic();
+                        // ESP_LOGD(TAG, "Rad Dyanmic: %f mRh", vRadD);
+                        vSensVal[2].value = sRadSens.getRadIntensyStatic();
+                        // ESP_LOGD(TAG, "Rad Static: %f mRh", vRadS);
+                        vSensVal[3].value = sRadSens.getNumberOfPulses();
+                        // ESP_LOGD(TAG, "Rad Pulses: %d ", vNumPulse);
 
-                vTaskDelay(20);
+                        ESP_LOGD(TAG, "Rad pulses: %d, dyanmic: %f mRh, static: %f mRh ", vSensVal[3].value, vSensVal[1].value, vSensVal[2].value);
+
+                        // контроль корректности данных.
+                        if (vSensVal[3].value > 200)
+                        {
+                                vSensVal[1].actual = true;
+                                vSensVal[2].actual = true;
+                                vSensVal[3].actual = true;
+                        }
+                        // vTaskDelay(pdMS_TO_TICKS(50));
+                }
+
+                /*************************
+                vTaskDelay(pdMS_TO_TICKS(20));
                 vSensVal[1].value = sRadSens.getRadIntensyDynamic();
                 // ESP_LOGD(TAG, "Rad Dyanmic: %f mRh", vRadD);
                 vSensVal[2].value = sRadSens.getRadIntensyStatic();
                 // ESP_LOGD(TAG, "Rad Static: %f mRh", vRadS);
                 // функция getNumberOfPulses() возвращает количество импульсов, зарегистрированных с момента последнего чтения данных по I2C (а не накопительным итогом с момента старта прибора)
-                vSensVal[3].value = sRadSens.getNumberOfPulses();  
+                vSensVal[3].value = sRadSens.getNumberOfPulses();
                 // ESP_LOGD(TAG, "Rad Pulses: %d ", vNumPulse);
 
                 ESP_LOGD(TAG, "Rad pulses: %d, dyanmic: %f mRh, static: %f mRh ", vSensVal[3].value, vSensVal[1].value, vSensVal[2].value);
@@ -368,7 +395,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 // vSensVal[2].value = vRadS;
                 // vSensVal[3].value = vNumPulse;
                 // контроль корректности данных.
-                //500 сек - время на набор статистики
+                // 500 сек - время на набор статистики
                 if (millis() - RADstartTime > 500000)
                 {
                         vSensVal[2].actual = true;
@@ -379,14 +406,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
                         vSensVal[2].actual = true;
                 }
 
-                /*        if (vSensVal[3].value > 200)
-                        {
-                                vSensVal[1].actual = true;
-                                vSensVal[2].actual = true;
-                                vSensVal[3].actual = true;
-                        }
-                                */
                 vTaskDelay(pdMS_TO_TICKS(50));
+                */
         }
 
         if (bBME_e)
@@ -396,6 +417,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
 
                 sBME_e.read(vSensVal[6].value, vSensVal[4].value, vSensVal[5].value, tempUnit, presUnit);
                 vSensVal[6].value = (vSensVal[6].value * 0.007500638); // Pa ->mmHg
+                vSensVal[4].value += fBME_e_Tfix;                      // fix
 
                 ESP_LOGD(TAG, "BME_ext Temp=%f, Humi=%f, Pres=%f", vSensVal[4].value, vSensVal[5].value, vSensVal[6].value);
 
@@ -425,6 +447,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 {
                         vSensVal[7].value = sHTU_e.getTemperature();
                         vSensVal[8].value = sHTU_e.getHumidity();
+                        vSensVal[7].value += fHTU_e_Tfix; // fix
 
                         ESP_LOGD(TAG, "HTU_ext Temp=%f, Humi=%f", vSensVal[7].value, vSensVal[8].value);
                 }
@@ -453,6 +476,8 @@ void getSensData(stSens *vSensVal) // read data from sensors
                         vTaskDelay(pdMS_TO_TICKS(20));
                         vSensVal[9].value = sSHT_e.getTemperature(); // read data
                         vSensVal[10].value = sSHT_e.getHumidity();
+                        vSensVal[9].value += fSHT_e_Tfix; // fix
+
                         ESP_LOGD(TAG, "SHT_ext Temp=%f, Humi=%f", vSensVal[9].value, vSensVal[10].value);
 
                         // контроль корректности данных.
@@ -552,7 +577,7 @@ extern void heatSens() // прогрев датчиков для правиль�
                 logToWeb("Heating SHT is ON");
         }
 
-        vTaskDelay(HEATTIME);
+        vTaskDelay(pdMS_TO_TICKS(HEATTIME)); // время нагрева
 
         if (bHTU_e)
         {
@@ -566,6 +591,7 @@ extern void heatSens() // прогрев датчиков для правиль�
                 ESP_LOGD(TAG, "Heating SHT is OFF");
                 logToWeb("Heating SHT is OFF");
         }
+        vTaskDelay(pdMS_TO_TICKS(HEATTIME)); // время охлаждения
 }
 
 void resetActualSensVal(stSens *vSensVal)
