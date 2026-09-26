@@ -10,7 +10,7 @@
  *  - закрыть мьютексами   получение данных, экран
  *   - вынести сервер  http в отдельный файл.
  *   - разобраться с логами и вывести в http
- *   - если данные с датчиков читаются по таймеру, то надо разделить локальный и таймер для отправки 
+ *   - если данные с датчиков читаются по таймеру, то надо разделить локальный и таймер для отправки
  *   - добавить поправки для температуры и (может) прочих
  * таски:
  *  - получить данные с датчиков /функцией. возможно потом будет таском, но надо будет прописать мьютекс/
@@ -26,6 +26,9 @@
  *
  *семафоры
  *  - прерывание по таймеру - pxTimerSemaphore
+ *
+ * Ядро 1 (Протоколы и датчики): Здесь крутятся ваши кнопки, PIR-датчик и минутный опрос датчиков (vfnSensorUpdateTask).
+ * Ядро 0 (Сетевой стек): Здесь живет системный Wi-Fi, веб-сервер и  10-минутная задача отправки (vfnNetworkSendTask).
  *
  */
 
@@ -83,13 +86,13 @@ PubSubClient mqttClient(CONF_MQTT_SERVER, 1883, wifiClient);
 #include "OutToScr.h"
 
 // Set alarm to call onTimer function every  second ( 80 000 000Gz / 8000 * 10000 ).
-// 100000 - 10s, 600000 - 1m(60s)  6000000 - 10m  36000000 - 1h(60m)
+// 10000 - 10s, 60000 - 1m(60s)  600000 - 10m  3600000 - 1h(60m)
 #define TIMER_PERIOD 6000000 // old, 4del
 
 // таймер обновления данных датчиков
-#define TIMER_PERIOD_DATA 600000
+#define TIMER_PERIOD_DATA 60000
 // таймер отправки данных на народмонитор
-#define TIMER_PERIOD_SEND 6000000
+#define TIMER_PERIOD_SEND 600000
 
 unsigned long startTime = millis();
 unsigned long isrPirTime = millis();
@@ -345,16 +348,17 @@ void vfnShowTime(void *vpArg)
 /* может конфликтовать за вывод на экран, в теории. Закрывается мьютексом */
 {
   static const char *TAG = "taskShowTime";
+  ESP_LOGD(TAG, "vfnShowTime starting");
+
   while (1)
   {
     xSemaphoreTake(pxShowTimeSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
-    ESP_LOGD(TAG, "Task show time");
+    ESP_LOGD(TAG, "pxShowTimeSemaphore, show time");
     // Защищаем экран мьютексом от наползания данных датчиков на время | но вотнадо-ли? Но не мешает.
-    if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-    {
-      ShowTime();
-      xSemaphoreGive(xSensorsMutex);
-    }
+    // if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)    {
+    ShowTime();
+    //  xSemaphoreGive(xSensorsMutex);
+    //}
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL);
@@ -432,19 +436,15 @@ static void vfnTimerTask(void *vpArg)
 static void vfnSensorUpdateTask(void *vpArg)
 {
   static const char *TAG = "sensor_task";
+  // xLastWakeTime больше НЕ НУЖНА
 
-  // Инициализируем счетчик времени для точного выдерживания интервалов
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xReadDataTicks = pdMS_TO_TICKS(TIMER_PERIOD_DATA); // 60 000 мс = 1 минута
+  ESP_LOGI(TAG, "start vfnSensorUpdateTask *****TEST*** 4Del!");
 
   while (1)
   {
-    // Задача засыпает ровно на 1 минуту с учетом времени, потраченного на выполнение кода
-    vTaskDelayUntil(&xLastWakeTime, xReadDataTicks);
-
     esp_task_wdt_reset(); // Кормим ватчдог ядра
-    ESP_LOGD(TAG, "start reading data from sensors");
-    logToWeb("[" + String(TAG) + "] start reading data from sensors");
+    ESP_LOGD(TAG, " reading data from sensors");
+    logToWeb("[" + String(TAG) + "]  reading data from sensors");
 
     // Защищаем массив мьютексом на время записи данных с физических шин
     if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
@@ -456,6 +456,9 @@ static void vfnSensorUpdateTask(void *vpArg)
     {
       ESP_LOGW(TAG, "Датчики заняты сервером, пропуск минутного замера");
     }
+
+    // засыпаем ровно на TIMER_PERIOD_DATA | задача спит ПОСЛЕ выполнения работы
+    vTaskDelay(pdMS_TO_TICKS(TIMER_PERIOD_DATA)); // 60 000 мс
   }
   vTaskDelete(NULL);
 }
@@ -465,15 +468,17 @@ static void vfnNetworkSendTask(void *vpArg)
 {
   static const char *TAG = "network_task";
 
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xSendToNetTicks = pdMS_TO_TICKS(TIMER_PERIOD_SEND);
+  // TickType_t xLastWakeTime = xTaskGetTickCount();
+  // const TickType_t xSendToNetTicks = pdMS_TO_TICKS(TIMER_PERIOD_SEND);
+  ESP_LOGI(TAG, "start vfnNetworkSendTask *****TEST*** 4Del!");
 
   while (1)
   {
     // Задача засыпает ровно на 10 минут
-    vTaskDelayUntil(&xLastWakeTime, xSendToNetTicks);
+    // vTaskDelayUntil(&xLastWakeTime, xSendToNetTicks);
+    vTaskDelay(pdMS_TO_TICKS(TIMER_PERIOD_SEND)); // 10 минут
 
-    esp_task_wdt_reset();
+    esp_task_wdt_reset(); // Кормим ватчдог ядра
     ESP_LOGI(TAG, "start sendind data from sensors to net");
     logToWeb("[" + String(TAG) + "] start sendind data from sensors to net");
 
@@ -487,6 +492,9 @@ static void vfnNetworkSendTask(void *vpArg)
     // Если Wi-Fi подключен — отправляем пакет на сервер
     if (bConnWiFi)
     {
+      ESP_LOGI(TAG, "start NarodmonTcpPublish ");
+      logToWeb("[" + String(TAG) + "] start NarodmonTcpPublish");
+
       esp_task_wdt_reset(); // Кормим ПЕРЕД тяжелой сетевой сессией
       NarodmonTcpPublish();
       esp_task_wdt_reset(); // Кормим СРАЗУ ПОСЛЕ отправки
@@ -576,12 +584,28 @@ static void vfnButtonTask(void *vpArg)
                               &ulNotifiedValue, // Переменная для записи значения
                               portMAX_DELAY);   // Ждать бесконечно долго
 
+    // АНТИ-НАВОДКА (Wi-Fi фильтр): Даем импульсу помехи утихнуть
+    // vTaskDelay(pdMS_TO_TICKS(25));
+    // Вместо vTaskDelay используем аппаратную задержку на 25 миллисекунд (25000 микросекунд)
+    // Она абсолютно безопасна в любой момент жизни контроллера и не вызывает падения Watchdog
+    delayMicroseconds(25000);
+
+    // Проверяем физическое состояние пина, который вызвал прерывание
+    bool bRealPress = false;
+    if (ulNotifiedValue == 0 && digitalRead(37) == LOW)
+      bRealPress = true; // Кнопка 0 (GPIO 37)
+    if (ulNotifiedValue == 1 && digitalRead(38) == LOW)
+      bRealPress = true; // Кнопка 1 (GPIO 38)
+    if (ulNotifiedValue == 2 && digitalRead(39) == LOW)
+      bRealPress = true; // Кнопка 2 (GPIO 39)
+
+    // Если это была короткая наводка (уровень уже HIGH), bRealPress останется false и код ниже проигнорируется
     // АНТИДРЕБЕЗГ КНОПОК: Если уведомление получено И с момента прошлого успешного нажатия прошло более 200 мс
-    if ((xResult == pdPASS) && (millis() - isrBtnTime > 200ul))
+    if ((xResult == pdPASS) && bRealPress && (millis() - isrBtnTime > 200ul))
     {
       // Записываем лог
       ESP_LOGD(TAG, "HW button interrupt now");
-      logToWeb("[GPIO_BTN]HW button interrupt now");
+      logToWeb("[" + String(TAG) + "] HW button interrupt now");
       // Обновляем глобальный таймер последнего нажатия текущим временем millis()
       isrBtnTime = millis();
 
@@ -591,7 +615,7 @@ static void vfnButtonTask(void *vpArg)
       case 0: // Кнопка GPIO 37 & PIR
         // Показ даты-времени на экране
         ESP_LOGD(TAG, "==button 0==");
-        logToWeb("[" + String(TAG) + "] button 0&PIR");
+        logToWeb("[" + String(TAG) + "] button 0 ");
         ESP_LOGD(TAG, "give semaphore time");
         // Отдаем семафор задаче, которая отвечает за вывод времени на дисплей
         xSemaphoreGive(pxShowTimeSemaphore);
@@ -599,7 +623,7 @@ static void vfnButtonTask(void *vpArg)
       case 1: // Кнопка GPIO 38
         // Показ погодных показателей на экране
         ESP_LOGD(TAG, "==button 1==");
-        logToWeb("[" + String(TAG) + "] button 1");
+        logToWeb("[" + String(TAG) + "] button 1 ");
         ESP_LOGD(TAG, "give semaphore data");
         // Отдаем семафор задаче, которая выводит  данные датчиков на дисплей
         xSemaphoreGive(pxShowDataSemaphore);
@@ -611,7 +635,6 @@ static void vfnButtonTask(void *vpArg)
         printLocalTime();
         // Вызываем функцию вывода значений всех датчиков в локальный лог
         showSensVal(); // TEST!
-        // NarodmonTcpPublish();  // ****************TEST**********
         break;
       default:
         // Обработка непредвиденных значений маски уведомления
@@ -643,7 +666,7 @@ static void vfnPirTask(void *vpArg)
     {
       // Вывод в лог факта обнаружения движения на пине 36
       ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
-      logToWeb("HW PIR interrupt now (pin 36)");
+      logToWeb("[" + String(TAG) + "] HW PIR interrupt now (pin 36)");
       // ESP_LOGD(TAG, "give semaphore data");
       //  Отдаем семафор задаче экрана, чтобы включить его или показать данные
       xSemaphoreGive(pxShowDataSemaphore);
@@ -662,13 +685,13 @@ static void vfnPirTask(void *vpArg)
 // ==WIFI ================
 void setup_wifi()
 {
-  static const char *TAG = "wifi";
+  static const char *TAG = "wifi-setup";
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   vTaskDelay(pdMS_TO_TICKS(10)); // delay(10);
   ESP_LOGI(TAG, "Connecting to %s", CONF_SSID);
-  logToWeb("[WiFi] Connecting to " + String(CONF_SSID));
+  logToWeb("[" + String(TAG) + "] Connecting to " + String(CONF_SSID));
 
   // WiFi.begin(ssid, password);
   WiFi.begin(CONF_SSID, CONF_PASSWORD);
@@ -678,14 +701,14 @@ void setup_wifi()
   while (WiFi.status() != WL_CONNECTED)
   {
     vTaskDelay(pdMS_TO_TICKS(500)); // delay(500);
-    logToWeb("[WiFi] trying to connect ");
+    logToWeb("[" + String(TAG) + "] trying to connect ");
     // Serial.print("#");
     // Serial.println();
     if (++wifiCounter > 5) //  роутеры часто выдают IP дольше 2 секунд потому рекомендовано >20, но на старте столько тормозить не стоит
     {
       // ESP.restart();
       ESP_LOGI(TAG, "--- WiFi not connected on boot! ");
-      logToWeb("[WiFi] --- not connected on boot! **");
+      logToWeb("[" + String(TAG) + "] --- not connected on boot! **");
       bConnWiFi = false;
       WiFi.disconnect();
       return; // Уходим, фоновый ватчдог подключит нас позже
@@ -694,15 +717,16 @@ void setup_wifi()
 
   bConnWiFi = true;
   ESP_LOGI(TAG, "WiFi connected. IP address: %s", WiFi.localIP().toString().c_str());
-  logToWeb("[WiFi] connected. IP address: " + WiFi.localIP().toString());
+  logToWeb("[" + String(TAG) + "] connected. IP address: " + WiFi.localIP().toString());
 }
 
 TaskHandle_t wifiWatchdogTaskHandle = NULL;
 
 void vWifiWatchdogTask(void *pvParameters)
 {
+  static const char *TAG = "wifi-WD";
   // Serial.println("[RTOS] Таска контроля Wi-Fi связи запущена на Ядре 1");
-  logToWeb("[RTOS] Таска контроля Wi-Fi связи запущена на Ядре 1");
+  logToWeb("[" + String(TAG) + "] start task wifi-watchdog");
 
   // Переменная для подсчета неудачных проверок
   int disconnectCount = 0;
@@ -715,13 +739,13 @@ void vWifiWatchdogTask(void *pvParameters)
       bConnWiFi = false;
       disconnectCount++;
       // Serial.printf("[WIFI WATCHDOG] Связь потеряна! Попытка %d из 3...\n", disconnectCount);
-      logToWeb("[WIFI WATCHDOG] Связь потеряна! Попытка " + String(disconnectCount) + " из 3");
+      logToWeb("[" + String(TAG) + "] Связь потеряна! Попытка " + String(disconnectCount) + " из 3");
 
       // Если связь отсутствует уже более  3 проверки по минуте)
       if (disconnectCount >= 3)
       {
         // Serial.println("[WIFI WATCHDOG] Долгий обрыв связи. Жесткий перезапуск Wi-Fi...");
-        logToWeb("[WIFI WATCHDOG] Долгий обрыв связи. Жесткий перезапуск Wi-Fi...");
+        logToWeb("[" + String(TAG) + "] Долгий обрыв связи. Жесткий перезапуск Wi-Fi...");
 
         WiFi.disconnect();
         vTaskDelay(pdMS_TO_TICKS(60000));
@@ -738,7 +762,7 @@ void vWifiWatchdogTask(void *pvParameters)
       // если было отключение (!bConnWiFi) и подключились заново
       if (!bConnWiFi)
       {
-        logToWeb("[WIFI WATCHDOG] Связь с роутером успешно восстановлена.");
+        logToWeb("[" + String(TAG) + "] Связь с роутером успешно восстановлена.");
         bConnWiFi = true;
         disconnectCount = 0;
       }
@@ -777,6 +801,7 @@ void setup()
   M5.Lcd.setCursor(0, 0);          // Ставим курсор в левый верхний угол
   M5.Lcd.setTextWrap(false, true); //  автоперенос длинных строк отключен, скроллинг включен
 
+  static const char *TAG = "global_setup";
   // Переопределяем частоту i2c на Fast-mode
   // Wire.setClock(400000);
   // Serial.println("[I2C] Частота шины i2c переключена на 400 кГц");
@@ -786,14 +811,14 @@ void setup()
   // Создаем мьютекс для логов
   xLogMutex = xSemaphoreCreateMutex();
 
-  ESP_LOGI(TAG, "===Starting...====");
-  logToWeb("===Starting...====");
+  ESP_LOGI(TAG, "====Starting...====");
+  logToWeb("====Starting...====");
 
   startTime = millis();
 
   // start sensors init
   ESP_LOGI(TAG, "start sensors init");
-  logToWeb("start sensors init");
+  logToWeb("[" + String(TAG) + "]start sensors init");
   startSens(vSensVal);
   // показать что подключили -
   getSensData(vSensVal);
@@ -812,16 +837,83 @@ void setup()
     printLocalTime();
   }
 
+#pragma region timer cfg
+  // 1. Запуск минутной задачи сбора данных (Средний приоритет 3, Ядро 1 — где датчики)
+  xTaskCreatePinnedToCore(
+      vfnSensorUpdateTask,
+      "Read Sensors data",
+      5120, //  стек для датчиков
+      NULL,
+      3,
+      NULL,
+      1 // Выполняется на Ядре 1
+  );
+
+  // 2. Запуск 10-минутной задачи отправки данных (Средний приоритет 3, Ядро 0 — где сетевой стек Wi-Fi)
+  xTaskCreatePinnedToCore(
+      vfnNetworkSendTask,
+      "Send data to Network",
+      4096, // Стек увеличен до 4 КБ под тяжелые String буферы сети
+      NULL,
+      4,
+      NULL,
+      0 // Строго на Ядре 0, чтобы сетевые задержки не фризили Ядро 1
+  );
+#pragma endregion
+
+  logToWeb("[" + String(TAG) + "]start tasks data&time");
+  pxShowDataSemaphore = xSemaphoreCreateBinary();
+  xTaskCreate(vfnvShowData, "Show data on screen", 2048, NULL, 5, NULL);
+  pxShowTimeSemaphore = xSemaphoreCreateBinary();
+  xTaskCreate(vfnShowTime, "Show time on screen", 2048, NULL, 5, NULL);
+
+  // Закрываем консоль длгов загрузки - дальше смотреть в web.
+  // Если поставить ниже вебсервера - будет конфликт и свалится в перезапуск
+  bBooting = false;
+  // Очищаем экран под графику метеостанции
+  // Если экран и датчики  делят одну шину (например, SPI или I2C),то надо оставить мьютекс активным
+  // if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)   {
+  M5.Lcd.fillScreen(BLACK);
+  M5.Lcd.setTextColor(WHITE); // Возвращаем дефолтный цвет
+  // M5.Lcd.setBrightness(0);
+  // xSemaphoreGive(xSensorsMutex);
+  // }
+
+  // http server
+  logToWeb("[" + String(TAG) + "]start task HTTP server");
+  xTaskCreatePinnedToCore(vHttpServerTask, "WiFi Web server", 4096, NULL, 2, NULL, 0);
+
+  // Core watchDog
+  esp_task_wdt_init(20, true);
+
+  // Запускаем таску контроля Wi-Fi
+  logToWeb("[" + String(TAG) + "]start task WiFi_Watchdog");
+  xTaskCreatePinnedToCore(
+      vWifiWatchdogTask, // Функция таски
+      "WiFi_Watchdog",   // Имя для отладки
+      3072,              // Размер стека (3КБ вполне достаточно для проверки статуса)
+      NULL,              // Параметры
+      1,                 // Низкий приоритет (фоновая задача)
+      &wifiWatchdogTaskHandle,
+      1 // Строго на Ядре 1, где живет Wi-Fi стек
+  );
+
+  // Контроллер активирует кнопки и PIR только когда вся система уже стабильно запущена.
+
 #pragma region hw interupt cfg
   ESP_LOGD(TAG, "set pin36-39");
-  logToWeb("Init keys&interrupt");
+  logToWeb("[" + String(TAG) + "]Init keys&interrupt");
   // config pins for interrupt
 
   // GPIO34-39 can only be set as input mode and do not have software-enabled pullup or pulldown functions.
-  gpio_config_t xButtonConfig;
+  // gpio_config_t xButtonConfig;
+  // Инициализируем структуру кнопок строго нулями {0} для безопасности регистров ESP32
+  gpio_config_t xButtonConfig = {0};
+
   xButtonConfig.pin_bit_mask = GPIO_SEL_37 | GPIO_SEL_38 | GPIO_SEL_39;
   xButtonConfig.mode = GPIO_MODE_INPUT;
-  xButtonConfig.pull_up_en = GPIO_PULLUP_ENABLE;
+  xButtonConfig.pull_up_en = GPIO_PULLUP_ENABLE; // пины 34-39 физически не имеют встроенных резисторов подтяжки. Попытка принудительно включить её через драйвер gpio_config на некоторых ревизиях чипов ESP32 вызывает сбой
+  // xButtonConfig.pull_up_en = GPIO_PULLUP_DISABLE;
   xButtonConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
   // xButtonConfig.intr_type = GPIO_INTR_ANYEDGE; // both rising and falling edge
   xButtonConfig.intr_type = GPIO_INTR_NEGEDGE; // on low level | Срабатывание по спаду (нажатие)
@@ -836,14 +928,21 @@ void setup()
                           5,              // priority
                           &xButtonHandle, // task handle (for callback from ISR)
                           1);             // core to run on
-  gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+  // gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);  // M5.begin() уже внутри себя автоматически настраивает кнопки, инициализирует драйвер прерываний GPIO и вызывает gpio_install_isr_service() и можно вызвать строго один раз
+  //  Регистрируем службу прерываний только если она НЕ была установлена ранее библиотекой M5Stack
+  esp_err_t err = gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+  if (err == ESP_ERR_INVALID_STATE)
+  {
+    ESP_LOGW(TAG, "ISR service already installed by M5Stack library, skipping...");
+  }
   //                GPIO to attach to | ISR to call | Parameters to pass
   gpio_isr_handler_add(GPIO_NUM_39, vfnButtonISR, (void *)GPIO_NUM_39);
   gpio_isr_handler_add(GPIO_NUM_38, vfnButtonISR, (void *)GPIO_NUM_38);
   gpio_isr_handler_add(GPIO_NUM_37, vfnButtonISR, (void *)GPIO_NUM_37);
 
   // Настройка пина PIR датчика (36)
-  gpio_config_t xSensorConfig;
+  // gpio_config_t xSensorConfig;
+  gpio_config_t xSensorConfig = {0};
   xSensorConfig.pin_bit_mask = GPIO_SEL_36;
   xSensorConfig.mode = GPIO_MODE_INPUT;
   xSensorConfig.pull_up_en = GPIO_PULLUP_DISABLE;
@@ -864,118 +963,15 @@ void setup()
 //
 #pragma endregion
 
-  /*  4del
-  #pragma region timer interupt cfg
-    //
-    ESP_LOGD(TAG, "set interrupt on timer");
-    // Create semaphore to inform us when the timer has fired
-    pxTimerSemaphore = xSemaphoreCreateBinary();
-    ESP_LOGD(TAG, "timerBegin");
-
-    // Инициализация таймера (Делитель 8000 дает тики по 0.1 мс при частоте 80МГц)
-    timer = timerBegin(
-        1,     // the Timer number from 0 to 3
-        8000,  //  the value of the time divider. Timer has a 16-bit Prescaler (from 2 to 65536)
-        true); // true to count on the rising edge, false to count on the falling edge
-    // Attach onTimer function to our timer.
-    // ESP_LOGD(TAG, "timerAttachInterrupt");   //4test
-    timerAttachInterrupt(
-        timer,       // is the pointer to the Timer we have just created
-        &onTimerISR, // the function that will be executed each time the Timer alarm is triggered
-        false);      // true-по фронту (edge) / false-по уровню (level)  | игнорируется, считается устаревшим (deprecated), так как прерывания таймера теперь жестко работают по фронту.
-
-    // Set alarm to call onTimer function every  second ( 80 000 000Gz / 8000 * 10000 ).
-    // 100000 - 10s, 600000 - 1m(60s)  6000000 - 10m  36000000 - 1h(60m)
-    // ESP_LOGD(TAG, "timerAlarmWrite");  //4test
-    timerAlarmWrite(
-        timer,        // the pointer to the Timer created previously
-        TIMER_PERIOD, // the frequency of triggering of the alarm in ticks
-        true);        // autoreload, Repeat the alarm, true to reset the alarm automatically after each trigger.
-
-    vTaskDelay(pdMS_TO_TICKS(2));
-    // Start an alarm
-    // ESP_LOGD(TAG, "timerAlarmEnable");  //4test
-    timerAlarmEnable(timer);
-    vTaskDelay(pdMS_TO_TICKS(2));
-
-    TaskHandle_t task2Handle = NULL;
-    // таймер подучения данных и отправки на народмон
-    xTaskCreate(
-        vfnTimerTask,  //* Function that implements the task.
-        "Timer task",  //* Text name for the task.
-        4096,          //* Stack size in words, not bytes.
-        (void *)NULL,  //* Parameter passed into the task.
-        4,             //* Priority at which the task is created.
-        &task2Handle); //* Used to pass out the created task's handle.
-
-  #pragma endregion
-  */
-
-#pragma region timer cfg
-  // 1. Запуск минутной задачи сбора данных (Средний приоритет 3, Ядро 1 — где датчики)
-  xTaskCreatePinnedToCore(
-      vfnSensorUpdateTask,
-      "Read Sensors data",
-      3072, // 3 КБ стека для датчиков вполне достаточно
-      NULL,
-      3,
-      NULL,
-      1 // Выполняется на Ядре 1
-  );
-
-  // 2. Запуск 10-минутной задачи отправки данных (Средний приоритет 3, Ядро 0 — где сетевой стек Wi-Fi)
-  xTaskCreatePinnedToCore(
-      vfnNetworkSendTask,
-      "Send data to Network",
-      4096, // Стек увеличен до 4 КБ под тяжелые String буферы сети
-      NULL,
-      3,
-      NULL,
-      0 // Строго на Ядре 0, чтобы сетевые задержки не фризили Ядро 1
-  );
-#pragma endregion
-
-  logToWeb("start tasks data&time");
-  pxShowDataSemaphore = xSemaphoreCreateBinary();
-  xTaskCreate(vfnvShowData, "Show data on screen", 2048, NULL, 3, NULL);
-  pxShowTimeSemaphore = xSemaphoreCreateBinary();
-  xTaskCreate(vfnShowTime, "Show time on screen", 2048, NULL, 3, NULL);
-
-  // Закрываем консоль длгов загрузки - дальше смотреть в web.
-  // Если поставить ниже вебсервера - будет конфликт и свалится в перезапуск
-  bBooting = false;
-  // Очищаем экран под графику метеостанции
-  if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
-  {
-    M5.Lcd.fillScreen(BLACK);
-    M5.Lcd.setTextColor(WHITE); // Возвращаем дефолтный цвет
-    M5.Lcd.setBrightness(0);
-    xSemaphoreGive(xSensorsMutex);
-  }
-
-  // http server
-  logToWeb("start Web server");
-  xTaskCreatePinnedToCore(vHttpServerTask, "WiFi Web server", 4096, NULL, 2, NULL, 0);
-
-  // Core watchDog
+  // Core watchDog | Инициализация общего системного Watchdog (20 секунд таймаут)
   esp_task_wdt_init(20, true);
 
-  // Запускаем таску контроля Wi-Fi
-  logToWeb("start task WiFi_Watchdog");
-  xTaskCreatePinnedToCore(
-      vWifiWatchdogTask, // Функция таски
-      "WiFi_Watchdog",   // Имя для отладки
-      3072,              // Размер стека (3КБ вполне достаточно для проверки статуса)
-      NULL,              // Параметры
-      1,                 // Низкий приоритет (фоновая задача)
-      &wifiWatchdogTaskHandle,
-      1 // Строго на Ядре 1, где живет Wi-Fi стек
-  );
-
-  logToWeb("Boot process finished successfully!");
+  logToWeb("====Boot process finished successfully!====");
 
   // Запускаем таски вывода времени и погодных данных
   xSemaphoreGive(pxShowTimeSemaphore);
+
+  vTaskDelay(pdMS_TO_TICKS(100));
 }
 
 void loop() {}

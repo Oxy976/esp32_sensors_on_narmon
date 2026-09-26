@@ -29,59 +29,60 @@ WebServer wserv(80);
 extern TaskHandle_t httpTaskHandle;
 
 // Обработчик веб-сервера с защитой вызова калибровки мьютексом
-void handleSCD30CalibRequest() 
+void handleSCD30CalibRequest()
 {
-    logToWeb("[WEB] Получен запрос на принудительную калибровку SCD30...");
+        static const char *TAG = "Cl_SCD30";
+
+    logToWeb("[" + String(TAG) + "] Получен запрос на принудительную калибровку SCD30...");
 
     // БЕЗОПАСНОСТЬ: Закрываем вызов функции мьютексом шины I2C на 200 мс
     if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(200)) == pdTRUE)
     {
-        SCD30Calibration(); // Безопасный вызов в защищенной секции
+        SCD30Calibration();            // Безопасный вызов в защищенной секции
         xSemaphoreGive(xSensorsMutex); // Обязательно освобождаем шину!
-        
-        logToWeb("[SCD30] Команда калибровки (415 ppm) успешно отправлена.");
+
+        logToWeb("[" + String(TAG) + "] Команда калибровки (415 ppm) успешно отправлена.");
         wserv.send(200, "text/plain", "OK");
     }
     else
     {
-        logToWeb("[SCD30] Ошибка: Не удалось получить доступ к шине I2C (занята другой таской)!");
+        logToWeb("[" + String(TAG) + "] Ошибка: Не удалось получить доступ к шине I2C (занята другой таской)!");
         wserv.send(503, "text/plain", "I2C Bus Busy");
     }
 }
-
 
 // http server -
 void handleRoot()
 {
     // 1. Обновляем переменные и получаем текущее время
-    updateSystemUptime(); 
+    updateSystemUptime();
     String current_time = getSystemTimeStr();
 
     // 2. Собираем строку аптайма по месту
-    String uptimeStr =  String(upTime_d) + "д "+String(upTime_h) + "ч " + String(upTime_m) + "м " + String(upTime_sec) + "с";
-    
+    String uptimeStr = String(upTime_d) + "д " + String(upTime_h) + "ч " + String(upTime_m) + "м " + String(upTime_sec) + "с";
+
     // 3. Формируем HTML страницу
     String html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">";
     html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
     html += "<link rel=\"icon\" href=\"data:,\">";
 
     html += "<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial; background-color: #f4f6f9; margin: 8px; padding: 0; font-size: 14px; }";
-    html += "h1 { font-size: 18px; margin: 8px 0 2px 0; color: #333; }";                                                                                   
-    html += "p { margin: 2px 0 10px 0; font-size: 12px; color: #666; }";                                                                                   
-    html += "table { border-collapse: collapse; width: 95%; max-width: 440px; margin: 0 auto; box-shadow: 0 2px 4px rgba(0,0,0,0.05); font-size: 13px; }"; 
-    html += "th { padding: 6px 8px; background-color: #0043af; color: white; font-size: 13px; }";                                                          
+    html += "h1 { font-size: 18px; margin: 8px 0 2px 0; color: #333; }";
+    html += "p { margin: 2px 0 10px 0; font-size: 12px; color: #666; }";
+    html += "table { border-collapse: collapse; width: 95%; max-width: 440px; margin: 0 auto; box-shadow: 0 2px 4px rgba(0,0,0,0.05); font-size: 13px; }";
+    html += "th { padding: 6px 8px; background-color: #0043af; color: white; font-size: 13px; }";
     html += "tr { border: 1px solid #C0C0C0; }";
     html += "tr:hover { background-color: #e8e8e8; }";
-    html += "td { padding: 5px 8px; }"; 
+    html += "td { padding: 5px 8px; }";
     html += ".actual { color: black; font-weight: bold; background-color: #ffffff; }";
     html += ".not_actual { color: #A0A0A0; font-weight: normal; background-color: #fafafa; }";
-    
+
     // Стили кнопок управления
-    html += ".btn { display: inline-block; padding: 6px 14px; margin: 12px 4px 0 4px; background-color: #333; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; font-family: Arial, sans-serif; border: none; cursor: pointer; }"; 
+    html += ".btn { display: inline-block; padding: 6px 14px; margin: 12px 4px 0 4px; background-color: #333; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 12px; font-family: Arial, sans-serif; border: none; cursor: pointer; }";
     html += ".btn:hover { background-color: #555; }";
     html += ".btn-calib { background-color: #b3392b; }";
     html += ".btn-calib:hover { background-color: #e74c3c; }</style>";
-    
+
     // JavaScript скрипт асинхронной отправки
     html += "<script>";
     html += "function runSCD30Calib() {";
@@ -95,7 +96,7 @@ void handleRoot()
     html += "  }";
     html += "}";
     html += "</script>";
-    
+
     html += "</head><body>";
 
     html += "<h1>ESP32 Метеостанция</h1>";
@@ -114,8 +115,8 @@ void handleRoot()
             {
                 html += "<tr class=\"not_actual\"><td>";
             }
-            html += String(i) + "</td><td style=\"text-align: left;\">";                               
-            html += vSensVal[i].name + "</td><td style=\"font-family: monospace; font-size: 14px;\">"; 
+            html += String(i) + "</td><td style=\"text-align: left;\">";
+            html += vSensVal[i].name + "</td><td style=\"font-family: monospace; font-size: 14px;\">";
             html += String(vSensVal[i].value, 2) + "</td><td>";
             html += vSensVal[i].unit + "</td></tr>";
         }
@@ -127,28 +128,27 @@ void handleRoot()
     }
 
     html += "</table>";
-    
+
     // Блок кнопок
     html += "<div style=\"text-align: center;\">";
     html += "  <a href=\"/logs\" class=\"btn\">Открыть системный лог</a>";
     html += "  <button onclick=\"runSCD30Calib()\" class=\"btn btn-calib\">FRC_SCD30</button>";
     html += "</div>";
-    
+
     html += "</body></html>";
 
     wserv.send(200, "text/html", html);
 }
 
-
 // 2. ОТДЕЛЬНАЯ СТРАНИЦА ЛОГОВ (/logs)
 void handleLogs()
 {
     // 1. Обновляем переменные и получаем текущее время
-    updateSystemUptime(); 
+    updateSystemUptime();
     String current_time = getSystemTimeStr();
 
     // 2. Собираем строку аптайма по месту
-    String uptimeStr =  String(upTime_d) + "д "+String(upTime_h) + "ч " + String(upTime_m) + "м " + String(upTime_sec) + "с";
+    String uptimeStr = String(upTime_d) + "д " + String(upTime_h) + "ч " + String(upTime_m) + "м " + String(upTime_sec) + "с";
 
     // 3. Формируем HTML страницу
     String html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">";
@@ -232,9 +232,8 @@ void handleNotFound()
 
 void vHttpServerTask(void *pvParameters)
 {
-    // Serial.println("[RTOS WebServer] Таска HTTP-сервера стартует");
-    logToWeb("[RTOS WebServer] Таска HTTP-сервера стартует");
     static const char *TAG = "http_server";
+   // logToWeb("[" + String(TAG) + "] Таска HTTP-сервера стартует");
 
     // 1. Инициализируем mDNS-респондер
     // Переменная hostname должна быть доступна (через extern или из settings.h)
@@ -247,8 +246,7 @@ void vHttpServerTask(void *pvParameters)
         }
     }
     ESP_LOGI(TAG, "mDNS responder started");
-    // Serial.printf("[RTOS WebServer] mDNS responder started with name ", CONF_HOSTNAME);
-    logToWeb("[RTOS WebServer] mDNS responder started with name " + String(CONF_HOSTNAME));
+    logToWeb("[" + String(TAG) + "] mDNS responder started with name " + String(CONF_HOSTNAME));
 
     // Инициализация путей...
     wserv.on("/", handleRoot);
@@ -262,8 +260,7 @@ void vHttpServerTask(void *pvParameters)
     // старт сервера
     wserv.begin();
     ESP_LOGI(TAG, "HTTP server started");
-    // Serial.println("[RTOS WebServer] WebServer успешно слушает порт 80");
-    logToWeb("[RTOS WebServer] WebServer initialized, online.");
+    logToWeb("[" + String(TAG) + "] WebServer initialized, online.");
 
     //  Регистрируем ТЕКУЩУЮ таску в системе Watchdog
     esp_task_wdt_add(NULL);
