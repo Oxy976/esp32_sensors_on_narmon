@@ -73,10 +73,10 @@ String GRAD = "\u00B0" + sC;
 
 // ###################
 // переменные коррекции
-float fDS_Tfix = -0.8;   // fix  data from sensor (°C)
+float fDS_Tfix = -0.3;   // fix  data from sensor (°C)
 float fBME_e_Tfix = 0.0; // fix  data from sensor (°C)
-float fHTU_e_Tfix = -1.5; // fix  data from sensor (°C)
-float fSHT_e_Tfix = -1.8; // fix  data from sensor (°C)
+float fHTU_e_Tfix = -0.3; // fix  data from sensor (°C)
+float fSHT_e_Tfix = -0.7; // fix  data from sensor (°C)
 // ####################
 
 // void SENSORS::startSens() // init sensors
@@ -167,7 +167,10 @@ void startSens(stSens *vSensVal) // init sensors
                 logToWeb(" RadSens Chip id:" + String(sRadSens.getChipId()));
                 ESP_LOGI(TAG, "Firmware version:  %d", sRadSens.getFirmwareVersion());
                 logToWeb(" RadSensFirmware version: " + String(sRadSens.getFirmwareVersion()));
-                vTaskDelay(pdMS_TO_TICKS(50));
+                logToWeb(" Setup default state Sensitivity(105) HVGeneratorState(true)");
+                sRadSens.setSensitivity(105);
+                sRadSens.setHVGeneratorState(true);
+                vTaskDelay(pdMS_TO_TICKS(20));
                 ESP_LOGI(TAG, "sensitivity get:  %d", sRadSens.getSensitivity());
                 ESP_LOGI(TAG, "HV generator state:  %d", sRadSens.getHVGeneratorState());
 

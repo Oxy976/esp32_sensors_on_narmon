@@ -127,45 +127,45 @@ void logToWeb(String text)
     {
       webLogs.pop_front();
     }
+
+    // 2. --- ВЫВОД СТАРТОВОГО ЛОГА НА ЭКРАН С ПОДСВЕТКОЙ ОШИБОК ---
+    if (bBooting)
+    {
+      // Переводим текст в нижний регистр для надежного поиска маркеров
+      String lowerText = text;
+      lowerText.toLowerCase();
+
+      // Проверяем на критические ошибки (красный цвет)
+      if (lowerText.indexOf("not found") != -1 ||
+          lowerText.indexOf("failed") != -1 ||
+          lowerText.indexOf("error") != -1 ||
+          lowerText.indexOf("---") != -1)
+      {
+        M5.Lcd.setTextColor(RED, BLACK);
+      }
+      // Проверяем на предупреждения или важные системные шаги (желтый цвет)
+      else if (lowerText.indexOf("connecting") != -1 ||
+               lowerText.indexOf("wait") != -1 ||
+               lowerText.indexOf("already started") != -1)
+      {
+        M5.Lcd.setTextColor(YELLOW, BLACK);
+      }
+      // Успешные события (оставляем зеленый или белый терминальный цвет)
+      else if (lowerText.indexOf("finded") != -1 ||
+               lowerText.indexOf("connected") != -1 ||
+               lowerText.indexOf("+++") != -1)
+      {
+        M5.Lcd.setTextColor(GREEN, BLACK);
+      }
+      else
+      {
+        M5.Lcd.setTextColor(WHITE, BLACK); // Обычный информационный текст
+      }
+
+      // Выводим строку на экран M5Stack
+      M5.Lcd.println(text);
+    }
     xSemaphoreGive(xLogMutex);
-  }
-
-  // 2. --- ВЫВОД СТАРТОВОГО ЛОГА НА ЭКРАН С ПОДСВЕТКОЙ ОШИБОК ---
-  if (bBooting)
-  {
-    // Переводим текст в нижний регистр для надежного поиска маркеров
-    String lowerText = text;
-    lowerText.toLowerCase();
-
-    // Проверяем на критические ошибки (красный цвет)
-    if (lowerText.indexOf("not found") != -1 ||
-        lowerText.indexOf("failed") != -1 ||
-        lowerText.indexOf("error") != -1 ||
-        lowerText.indexOf("---") != -1)
-    {
-      M5.Lcd.setTextColor(RED, BLACK);
-    }
-    // Проверяем на предупреждения или важные системные шаги (желтый цвет)
-    else if (lowerText.indexOf("connecting") != -1 ||
-             lowerText.indexOf("wait") != -1 ||
-             lowerText.indexOf("already started") != -1)
-    {
-      M5.Lcd.setTextColor(YELLOW, BLACK);
-    }
-    // Успешные события (оставляем зеленый или белый терминальный цвет)
-    else if (lowerText.indexOf("finded") != -1 ||
-             lowerText.indexOf("connected") != -1 ||
-             lowerText.indexOf("+++") != -1)
-    {
-      M5.Lcd.setTextColor(GREEN, BLACK);
-    }
-    else
-    {
-      M5.Lcd.setTextColor(WHITE, BLACK); // Обычный информационный текст
-    }
-
-    // Выводим строку на экран M5Stack
-    M5.Lcd.println(text);
   }
 
   // Дублируем в аппаратный Serial
@@ -447,7 +447,7 @@ static void vfnSensorUpdateTask(void *vpArg)
     logToWeb("[" + String(TAG) + "]  reading data from sensors");
 
     // Защищаем массив мьютексом на время записи данных с физических шин
-    if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
     {
       getSensData(vSensVal);         // Считываем физические показатели
       xSemaphoreGive(xSensorsMutex); // Освобождаем мьютекс
@@ -657,21 +657,26 @@ static void vfnPirTask(void *vpArg)
   while (1)
   {
     // Ждем уведомление от прерывания vfnPirISR бесконечно долго
-    xResult = xTaskNotifyWait(pdFALSE, 0xFFFFFFFF, &ulNotifiedValue, portMAX_DELAY);
+    //    xResult = xTaskNotifyWait(pdFALSE, 0xFFFFFFFF, &ulNotifiedValue, portMAX_DELAY);
+    xResult = xTaskNotifyWait(0x00, 0xFFFFFFFF, &ulNotifiedValue, portMAX_DELAY);
+
     // АНАЛИЗ ЗАДЕРЖЕК PIR:
     // 1. Проверка на получение уведомления (xResult == pdPASS)
     // 2. Слепой интервал (millis() - isrPirTime > 5000ul): игнорируем датчик в течение 5 сек после прошлого срабатывания
     // 3. Задержка старта (millis() > 60000ul): датчик полностью игнорируется в первые 60 секунд работы ESP32
-    if ((xResult == pdPASS) && (millis() - isrPirTime > 5000ul) && (millis() > 60000ul))
+    if (xResult == pdPASS)
     {
-      // Вывод в лог факта обнаружения движения на пине 36
-      ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
-      logToWeb("[" + String(TAG) + "] HW PIR interrupt now (pin 36)");
-      // ESP_LOGD(TAG, "give semaphore data");
-      //  Отдаем семафор задаче экрана, чтобы включить его или показать данные
-      xSemaphoreGive(pxShowDataSemaphore);
-      // Запоминаем время текущего срабатывания PIR датчика
-      isrPirTime = millis();
+      if ((millis() - isrPirTime > 5000ul) && (millis() > 60000ul))
+      {
+        // Вывод в лог факта обнаружения движения на пине 36
+        ESP_LOGD(TAG, "HW PIR interrupt now (pin 36)");
+        logToWeb("[" + String(TAG) + "] HW PIR interrupt now (pin 36)");
+        // ESP_LOGD(TAG, "give semaphore data");
+        //  Отдаем семафор задаче экрана, чтобы включить его или показать данные
+        xSemaphoreGive(pxShowDataSemaphore);
+        // Запоминаем время текущего срабатывания PIR датчика
+        isrPirTime = millis();
+      }
     }
   }
   ESP_LOGD(TAG, "Crash!");
@@ -912,8 +917,8 @@ void setup()
 
   xButtonConfig.pin_bit_mask = GPIO_SEL_37 | GPIO_SEL_38 | GPIO_SEL_39;
   xButtonConfig.mode = GPIO_MODE_INPUT;
-  xButtonConfig.pull_up_en = GPIO_PULLUP_ENABLE; // пины 34-39 физически не имеют встроенных резисторов подтяжки. Попытка принудительно включить её через драйвер gpio_config на некоторых ревизиях чипов ESP32 вызывает сбой
-  // xButtonConfig.pull_up_en = GPIO_PULLUP_DISABLE;
+  //xButtonConfig.pull_up_en = GPIO_PULLUP_ENABLE; // пины 34-39 физически не имеют встроенных резисторов подтяжки. Попытка принудительно включить её через драйвер gpio_config на некоторых ревизиях чипов ESP32 вызывает сбой
+   xButtonConfig.pull_up_en = GPIO_PULLUP_DISABLE;
   xButtonConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
   // xButtonConfig.intr_type = GPIO_INTR_ANYEDGE; // both rising and falling edge
   xButtonConfig.intr_type = GPIO_INTR_NEGEDGE; // on low level | Срабатывание по спаду (нажатие)
@@ -940,7 +945,7 @@ void setup()
   gpio_isr_handler_add(GPIO_NUM_38, vfnButtonISR, (void *)GPIO_NUM_38);
   gpio_isr_handler_add(GPIO_NUM_37, vfnButtonISR, (void *)GPIO_NUM_37);
 
-  // Настройка пина PIR датчика (36)
+  // Настройка пина PIR датчика SR602  (36)
   // gpio_config_t xSensorConfig;
   gpio_config_t xSensorConfig = {0};
   xSensorConfig.pin_bit_mask = GPIO_SEL_36;
@@ -950,7 +955,7 @@ void setup()
   xSensorConfig.intr_type = GPIO_INTR_POSEDGE; // rising edge |  По фронту (высокий уровень при движении)
   gpio_config(&xSensorConfig);
 
-  // Sensor Pin
+  // Sensor Pin 
   ESP_LOGD(TAG, "cfg hw interrupt for sensor");
   xTaskCreatePinnedToCore(vfnPirTask,        // function with task's code
                           "PIR sensor task", // name
