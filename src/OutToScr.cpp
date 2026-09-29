@@ -2,7 +2,6 @@
 #include <Arduino.h>
 #include <M5Stack.h>
 #include "strct.h"
-#define SCRDELAY 5000 // сколько показывать картинку
 // https://github.com/m5stack/M5Stack/blob/master/src/utility/In_eSPI.h
 // тут используется исправленный шрифт с новыми символами и русскими буквами. Возможность вывода в UTF8 не используется. Вывод посимвольно.
 // т.к. 1. utf занимает больше места 2. спецсимволы в utf не удалось отобразить.
@@ -15,6 +14,18 @@ extern SemaphoreHandle_t xLcdMutex;
 #define F_RR16 &RobotoR16pt8b
 #include "fonts/RobotoR32pt8b.h"
 #define F_RR32 &RobotoR32pt8b
+
+// Константы времени
+#define SCRDELAY 5000 // сколько показывать картинку
+// для плавного затухания
+#define LCD_HOLD_TIME 5000 // Сколько секунд экран горит на полную (5с)
+#define FADE_SPEED_MS 10   // Скорость падения яркости (шаг каждые 10 мс)
+
+static unsigned long lcdTimer = 0;        // Таймер для удержания экрана
+static unsigned long fadeTimer = 0;       // Таймер для шагов затухания
+static int currentBrightness = 100;       // Текущая яркость экрана
+static int targetBrightness = 100;        // Желаемая яркость экрана
+static bool isScreenActive = true;        // Флаг: горит ли экран сейчас
 
 int sym_dnum[] = {143, 144, 145, 146, 147, 148, 149, 150, 151, 152}; //!!only for font RobotoR !!
 int sym_gradC = 159;                                                 //!!only for font RobotoR !!
@@ -104,7 +115,7 @@ String RgToStr(float r)
   strR = String(r1) + "," + String(char(sym_r2)) + " " + String(char(sym_uS));
   return strR;
 }
-
+/*
 void ScreenOff()
 {
   // delay(2000);
@@ -130,6 +141,65 @@ void ScreenOn()
     vTaskDelay(2);
   }
 }
+*/
+
+void ScreenOn()
+{
+  M5.Lcd.writecommand(ILI9341_DISPON);
+  currentBrightness = 100;
+  targetBrightness = 100;
+  M5.Lcd.setBrightness(currentBrightness);
+  isScreenActive = true;
+  lcdTimer = millis(); // Сбрасываем таймер удержания
+}
+
+// Теперь ScreenOff просто дает команду: "Начни плавно снижать яркость до 0"
+void ScreenOff()
+{
+  targetBrightness = 0;
+  isScreenActive = false;
+  fadeTimer = millis();
+}
+
+// ЭТА ФУНКЦИЯ ДЕЛАЕТ ПЛАВНОЕ ЗАТУХАНИЕ БЕЗ ЗАВИСАНИЯ ТАСОК
+// Мы будем вызывать её в loop()
+void processLcdAnimate()
+{
+  // 1. Автомат удержания: если экран активен и 5 секунд прошло — даем команду гаснуть
+  if (isScreenActive && (millis() - lcdTimer >= LCD_HOLD_TIME))
+  {
+    ScreenOff();
+  }
+
+  // 2. Автомат плавного затухания: меняем яркость по таймеру БЕЗ задержек vTaskDelay
+  if (currentBrightness != targetBrightness)
+  {
+    if (millis() - fadeTimer >= FADE_SPEED_MS)
+    {
+      fadeTimer = millis();
+      
+      if (currentBrightness > targetBrightness) {
+        currentBrightness -= 5; // Шаг уменьшения (можно менять для скорости)
+        if (currentBrightness < 0) currentBrightness = 0;
+      } 
+      else {
+        currentBrightness += 5;
+        if (currentBrightness > 100) currentBrightness = 100;
+      }
+
+      M5.Lcd.setBrightness(currentBrightness);
+
+      // Если полностью погасли — физически отключаем контроллер дисплея
+      if (currentBrightness == 0)
+      {
+        M5.Lcd.fillScreen(TFT_BLACK);
+        M5.Lcd.writecommand(ILI9341_DISPOFF);
+      }
+    }
+  }
+}
+
+
 
 void OutToScr(stSens *vSensVal)
 {
@@ -238,8 +308,8 @@ void OutToScr(stSens *vSensVal)
   }
 
   OutStrToScr(TempToStr(b1), HumToStr(sr1), PressToStr(sr2), TempToStr(sd1), HumToStr(sd2), RgToStr(sd3));
-  vTaskDelay(SCRDELAY);
-  ScreenOff();
+  //vTaskDelay(SCRDELAY);     //4del
+  //ScreenOff();    //4del
 }
 
 void ShowTime()
@@ -328,6 +398,6 @@ void ShowTime()
       M5.Lcd.drawString(String(ruDays[wday].second), 165, 210, 1);
  */
 
-  vTaskDelay(SCRDELAY);  // рекомендовано уйти от задержек. Для минимизации занятия мьютекса.
-  ScreenOff();
+  //vTaskDelay(SCRDELAY);  // рекомендовано уйти от задержек. Для минимизации занятия мьютекса.  4del
+  //ScreenOff();      //4del
 }

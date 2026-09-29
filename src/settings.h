@@ -17,7 +17,7 @@
 #define CONF_CLIENT_ID     "xxx" // MAC
 #define CONF_AUTH_METHOD   "xxx" //USERNAME
 #define CONF_TOKEN         "xx"  //PASS
-#define TOPIC  "login/xxx/"
-#define CONF_CONN_TOPIC    "status"  
+#define TOPIC  			   "login/xxx/"
+#define CONF_CONN_TOPIC    "login/xxx/status"  //TOPIC + "status"
 
 #endif

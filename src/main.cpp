@@ -354,11 +354,11 @@ void vfnvShowData(void *vpArg)
     ESP_LOGD(TAG, "Task show data");
     // --- ЗАЩИТА МЬЮТЕКСОМ ---
     // Защищаем экран специализированным мьютексом
-    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(2000)) == pdTRUE)
     {
       // Для чтения данных из массива vSensVal все еще нужен датчиковый мьютекс,
       // но берем его на долю секунды БЕЗ блокировки отрисовки
-      if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+      if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
       {
         // Данные внутри OutToScr теперь будут выводиться под защитой xLcdMutex
         OutToScr(vSensVal);
@@ -387,7 +387,7 @@ void vfnShowTime(void *vpArg)
     xSemaphoreTake(pxShowTimeSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
     ESP_LOGD(TAG, "pxShowTimeSemaphore, show time");
     // Защищаем экран от пересечения с активным экраном вывода погоды
-    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(2000)) == pdTRUE)
     {
       ShowTime(); // Выводим время на экран
       xSemaphoreGive(xLcdMutex);
@@ -924,9 +924,10 @@ void setup()
     // if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)   {
     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextColor(WHITE); // Возвращаем дефолтный цвет
-    // M5.Lcd.setBrightness(0);
-    // xSemaphoreGive(xSensorsMutex);
-    // }
+                                // M5.Lcd.setBrightness(0);
+                                // xSemaphoreGive(xSensorsMutex);
+                                // }
+    xSemaphoreGive(xLcdMutex);
   }
 
   // http server
@@ -1030,5 +1031,8 @@ void loop()
 {
   esp_task_wdt_reset();  // Кормим Watchdog Ядра 1
   processAsyncHeating(); // Продвигаем тики нагрева каждые 100 мс
+
+  processLcdAnimate(); // Плавное затухание теперь работает тут! - проверяем, не пора ли снизить яркость экрана на один шаг
+
   vTaskDelay(pdMS_TO_TICKS(100));
 }

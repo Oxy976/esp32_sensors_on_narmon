@@ -2,6 +2,8 @@
 #define OutToScr_h
 #include "strct.h"
 
-extern void OutToScr( stSens *vSensVal );
+extern void OutToScr(stSens *vSensVal);
 extern void ShowTime();
+void processLcdAnimate();
+
 #endif
