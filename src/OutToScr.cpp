@@ -7,6 +7,9 @@
 // тут используется исправленный шрифт с новыми символами и русскими буквами. Возможность вывода в UTF8 не используется. Вывод посимвольно.
 // т.к. 1. utf занимает больше места 2. спецсимволы в utf не удалось отобразить.
 
+// Указываем компилятору, что мьютекс экрана физически лежит в main.cpp
+extern SemaphoreHandle_t xLcdMutex; 
+
 //+Ru(192-255)+up/down[0-9](133-152)+sym(155-159)
 #include "fonts/RobotoR16pt8b.h"
 #define F_RR16 &RobotoR16pt8b
@@ -266,6 +269,7 @@ void ShowTime()
   M5.Lcd.drawString(sdte, 160, 170, 1);
   // M5.Lcd.drawString(swday, 160, 20, 1);
 
+/*блок под замену - тяжелый перебор. В новой (возможно) - быстрая таблица. Но 2 буквы */
   switch (wday)
   {
   case 0:
@@ -304,6 +308,26 @@ void ShowTime()
     M5.Lcd.drawString(String(char(225)), 160, 210, 1);
     break;
   }
-  vTaskDelay(SCRDELAY);
+ /*
+  // Оптимизированный структурированный вывод дней недели вместо громоздкого switch-case
+  // Символы 194, 241 и т.д. отправляются парами, как у вас и было задумано для RobotoFont
+  struct RuDay { char first; char second; };
+  static const RuDay ruDays[] = {
+    {194, 241}, // Вс (Воскресенье)
+    {207, 237}, // Пн
+    {194, 242}, // Вт
+    {209, 240}, // Ср
+    {215, 242}, // Чт
+    {207, 242}, // Пт
+    {209, 225}  // Сб
+  };
+
+  int wday = timeinfo.tm_wday;
+  if (wday >= 0 && wday <= 6) {
+      M5.Lcd.drawString(String(ruDays[wday].first), 140, 210, 1);
+      M5.Lcd.drawString(String(ruDays[wday].second), 165, 210, 1);
+ */
+
+  vTaskDelay(SCRDELAY);  // рекомендовано уйти от задержек. Для минимизации занятия мьютекса.
   ScreenOff();
 }

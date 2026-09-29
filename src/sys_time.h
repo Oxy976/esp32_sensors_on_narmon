@@ -2,15 +2,17 @@
 #define SYS_TIME_H
 
 #include <Arduino.h>
+#include <time.h>
 
-// Объявляем глобальные переменные для совместимости со старым кодом
 extern long upTime_d;
 extern long upTime_h;
 extern long upTime_m;
 extern long upTime_sec;
 
-// Чистые системные функции
 void updateSystemUptime();
 String getSystemTimeStr();
+String getSystemTimeShortStr(); // Для логов [HH:MM:SS]
+String getUptimeStr();          // Красивая строка аптайма
+bool isTimeValid();             // Проверка синхронизации NTP
 
 #endif // SYS_TIME_H

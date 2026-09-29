@@ -1,4 +1,5 @@
-#include "sys_time.h"
+
+/*#include "sys_time.h"
 #include <esp_timer.h> // Нативный компонент ESP-IDF для микросекундных таймеров
 #include <time.h>
 
@@ -32,4 +33,54 @@ String getSystemTimeStr() {
         strftime(timeBuffer, sizeof(timeBuffer), "%d.%m.%Y %H:%M:%S", &timeinfo);
     }
     return String(timeBuffer);
+}
+    */
+
+
+#include "sys_time.h"
+#include <esp_timer.h>
+
+long upTime_d = 0;
+long upTime_h = 0;
+long upTime_m = 0;
+long upTime_sec = 0;
+
+void updateSystemUptime() {
+    int64_t total_seconds = esp_timer_get_time() / 1000000;
+    upTime_sec = total_seconds % 60;
+    long total_minutes = total_seconds / 60;
+    upTime_m = total_minutes % 60;
+    long total_hours = total_minutes / 24; // Исправлен баг расчета часов
+    upTime_h = (total_seconds / 3600) % 24;
+    upTime_d = total_seconds / 86400;
+}
+
+String getSystemTimeStr() {
+    struct tm timeinfo;
+    char timeBuffer[40];
+    if (getLocalTime(&timeinfo) && timeinfo.tm_year > 120) {
+        strftime(timeBuffer, sizeof(timeBuffer), "%d.%m.%Y %H:%M:%S", &timeinfo);
+        return String(timeBuffer);
+    }
+    return String("НЕТ СИНХРОНИЗАЦИИ");
+}
+
+String getSystemTimeShortStr() {
+    struct tm timeinfo;
+    char timeBuffer[20];
+    if (getLocalTime(&timeinfo) && timeinfo.tm_year > 120) {
+        strftime(timeBuffer, sizeof(timeBuffer), "[%H:%M:%S] ", &timeinfo);
+        return String(timeBuffer);
+    }
+    return "[" + String(esp_timer_get_time() / 1000000) + "s] ";
+}
+
+String getUptimeStr() {
+    updateSystemUptime();
+    return String(upTime_d) + "д " + String(upTime_h) + "ч " + String(upTime_m) + "м " + String(upTime_sec) + "с";
+}
+
+bool isTimeValid() {
+    struct tm timeinfo;
+    return (getLocalTime(&timeinfo) && timeinfo.tm_year > 120);
 }

@@ -46,6 +46,7 @@
 #include "settings.h"
 #include "wifi_server.h" // Подключаем созданный модуль сервера http
 #include "strct.h"
+#include "sys_time.h"
 
 stSens vSensVal[SensUnit];
 
@@ -60,8 +61,9 @@ const size_t MAX_LOG_LINES = 50;
 std::deque<String> webLogs;
 SemaphoreHandle_t xLogMutex = NULL; // Мьютекс создадим в setup()
 
-// Хэндл мьютекса для защиты массива vSensVal
-SemaphoreHandle_t xSensorsMutex = NULL;
+SemaphoreHandle_t xLcdMutex = NULL; //   МЬЮТЕКС ДЛЯ ЭКРАНА
+
+SemaphoreHandle_t xSensorsMutex = NULL; // Мьютекс защиты данных датчиков
 
 #include "sensors.h"
 
@@ -72,7 +74,7 @@ TaskHandle_t httpTaskHandle = NULL; // Хэндл управления таск�
 #include <ESPmDNS.h>
 
 boolean bConnWiFi = false;
-struct tm timeinfo;
+// struct tm timeinfo;  //4del
 
 WiFiClient wifiClient;
 
@@ -106,19 +108,7 @@ bool bBooting = true;
 // Глобальная функция логирования logToWeb
 void logToWeb(String text)
 {
-  struct tm timeinfo; // ************** заменить на вызов из sys_time ********************
-  char timeBuf[32] = "";
-  String timeStr = "";
-
-  if (getLocalTime(&timeinfo) && timeinfo.tm_year > 120)
-  {
-    strftime(timeBuf, sizeof(timeBuf), "[%H:%M:%S] ", &timeinfo);
-    timeStr = String(timeBuf);
-  }
-  else
-  {
-    timeStr = "[" + String(millis() / 1000) + "s] ";
-  }
+  String timeStr = getSystemTimeShortStr();
 
   if (xLogMutex != NULL && xSemaphoreTake(xLogMutex, pdMS_TO_TICKS(10)) == pdTRUE)
   {
@@ -131,41 +121,36 @@ void logToWeb(String text)
     // 2. --- ВЫВОД СТАРТОВОГО ЛОГА НА ЭКРАН С ПОДСВЕТКОЙ ОШИБОК ---
     if (bBooting)
     {
-      // Переводим текст в нижний регистр для надежного поиска маркеров
-      String lowerText = text;
-      lowerText.toLowerCase();
 
-      // Проверяем на критические ошибки (красный цвет)
-      if (lowerText.indexOf("not found") != -1 ||
-          lowerText.indexOf("failed") != -1 ||
-          lowerText.indexOf("error") != -1 ||
-          lowerText.indexOf("---") != -1)
+      // Пытаемся взять мьютекс экрана
+      if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(50)) == pdTRUE)
       {
-        M5.Lcd.setTextColor(RED, BLACK);
-      }
-      // Проверяем на предупреждения или важные системные шаги (желтый цвет)
-      else if (lowerText.indexOf("connecting") != -1 ||
-               lowerText.indexOf("wait") != -1 ||
-               lowerText.indexOf("already started") != -1)
-      {
-        M5.Lcd.setTextColor(YELLOW, BLACK);
-      }
-      // Успешные события (оставляем зеленый или белый терминальный цвет)
-      else if (lowerText.indexOf("finded") != -1 ||
-               lowerText.indexOf("connected") != -1 ||
-               lowerText.indexOf("+++") != -1)
-      {
-        M5.Lcd.setTextColor(GREEN, BLACK);
-      }
-      else
-      {
-        M5.Lcd.setTextColor(WHITE, BLACK); // Обычный информационный текст
-      }
+        // Переводим текст в нижний регистр для надежного поиска маркеров
+        String lowerText = text;
+        lowerText.toLowerCase();
 
-      // Выводим строку на экран M5Stack
-      M5.Lcd.println(text);
+        if (lowerText.indexOf("not found") != -1 || lowerText.indexOf("failed") != -1 || lowerText.indexOf("error") != -1 || lowerText.indexOf("---") != -1)
+        {
+          M5.Lcd.setTextColor(RED, BLACK);
+        }
+        else if (lowerText.indexOf("connecting") != -1 || lowerText.indexOf("wait") != -1 || lowerText.indexOf("already started") != -1)
+        {
+          M5.Lcd.setTextColor(YELLOW, BLACK);
+        }
+        else if (lowerText.indexOf("finded") != -1 || lowerText.indexOf("connected") != -1 || lowerText.indexOf("+++") != -1)
+        {
+          M5.Lcd.setTextColor(GREEN, BLACK);
+        }
+        else
+        {
+          M5.Lcd.setTextColor(WHITE, BLACK);
+        }
+
+        M5.Lcd.println(text);
+        xSemaphoreGive(xLcdMutex); // Освобождаем экран
+      }
     }
-    xSemaphoreGive(xLogMutex);
+    xSemaphoreGive(xLogMutex); // освобождаем лог
   }
 
   // Дублируем в аппаратный Serial
@@ -222,6 +207,24 @@ bool NarodmonTcpPublish()
   static const char *TAG = "NmonTcp";
   // WiFiClient client;
 
+  // 1. Проверка на наличие актуальных данных перед отправкой
+  bool hasDataToSend = false;
+  for (int i = 0; i < SensUnit; i++)
+  {
+    if (vSensVal[i].actual && (vSensVal[i].mqttId.length() > 1))
+    {
+      hasDataToSend = true;
+      break;
+    }
+  }
+
+  if (!hasDataToSend)
+  {
+    ESP_LOGW(TAG, "Нет актуальных данных для отправки, отмена сессии.");
+    logToWeb("[NMon] Отмена: нет актуальных данных");
+    return false;
+  }
+
   String mac = "30:AE:A4:69:B9:04";
   //  String mac = "30AEA469B904";
   String buf;
@@ -236,7 +239,7 @@ bool NarodmonTcpPublish()
   }
   buf = buf + "##\n"; // закрываем пакет
 
-  // Установка таймаута перед подключением, чтобы не заблокировать таску FreeRTOS
+  // Установка таймаута на любые сетевые операции  перед подключением, чтобы не заблокировать таску FreeRTOS
   wifiClient.setTimeout(500);
 
   if (!wifiClient.connect("narodmon.ru", 8283)) // попытка подключения
@@ -253,13 +256,41 @@ bool NarodmonTcpPublish()
     logToWeb("[NMon] Connected to narodmon, sending data string");
     wifiClient.print(buf); // и отправляем данные
 
+    /* --Старый вариант, тормозной. К удалению.
     // Быстро вычитываем ответ, если он есть  |  стоит убрать что-б не тормозило. Все равно не отдает. **************
-    while (wifiClient.available())
+        while (wifiClient.available())
     {
       String line = wifiClient.readStringUntil('\r'); // если что-то в ответ будет | readStringUntil ждет до 1с стоит убрать что-б не тормозило. Все равно не отдает.
       ESP_LOGD(TAG, "string from site: %s", line);
       logToWeb("[NMon] string from site: " + line);
     }
+    */
+
+    // НЕБЛОКИРУЮЩЕЕ ЧТЕНИЕ ОТВЕТА:
+    // Даем серверу крошечную паузу в 50 мс, чтобы он успел обработать пакет и плюнуть ответ в буфер ESP32
+    vTaskDelay(pdMS_TO_TICKS(50));
+    /* если надо будет ответ - раскомментировать. Вроде narodmon вообще ответ не отдает.
+        // Вместо readStringUntil() быстро выгребаем всё, что сервер уже успел прислать в ответ
+        if (wifiClient.available())
+        {
+          String response = "";
+          while (wifiClient.available())
+          {
+            char c = wifiClient.read();
+            response += c;
+            if (response.length() > 32)
+              break; // Защита от бесконечного спама со стороны сервера
+          }
+          response.trim();
+          ESP_LOGD(TAG, "Ответ сервера: %s", response.c_str());
+          logToWeb("[NMon] Ответ сервера: " + response);
+        }
+        else
+        {
+          logToWeb("[NMon] Пакет ушел (сервер закрыл сессию без ответа)");
+        }
+    */
+    // Обязательно закрываем соединение и освобождаем сокет
     wifiClient.stop();
     return true; // ушло
   }
@@ -322,22 +353,23 @@ void vfnvShowData(void *vpArg)
     xSemaphoreTake(pxShowDataSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
     ESP_LOGD(TAG, "Task show data");
     // --- ЗАЩИТА МЬЮТЕКСОМ ---
-    // Пытаемся взять мьютекс, ждем максимум 100 мс
-    if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)
+    // Защищаем экран специализированным мьютексом
+    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(200)) == pdTRUE)
     {
-
-      //  getSensData(vSensVal); // Безопасно получаем-записываем новые данные |  удалено - данные получает vfnTimerTask, не надо ему мешать
-      OutToScr(vSensVal); // Безопасно выводим их на дисплей M5Stack
-
-      xSemaphoreGive(xSensorsMutex); // Обязательно освобождаем!
+      // Для чтения данных из массива vSensVal все еще нужен датчиковый мьютекс,
+      // но берем его на долю секунды БЕЗ блокировки отрисовки
+      if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+      {
+        // Данные внутри OutToScr теперь будут выводиться под защитой xLcdMutex
+        OutToScr(vSensVal);
+        xSemaphoreGive(xSensorsMutex);
+      }
+      xSemaphoreGive(xLcdMutex); // Освобождаем экран
     }
     else
     {
-      ESP_LOGW(TAG, "Не удалось обновить экран: данные заняты другой таской");
+      ESP_LOGW(TAG, "Не удалось обновить экран: данные заняты другой задачей");
     }
-
-    // getSensData(vSensVal); // получить данные 4del
-    // OutToScr(vSensVal);    // показать данные 4del
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL);
@@ -354,11 +386,16 @@ void vfnShowTime(void *vpArg)
   {
     xSemaphoreTake(pxShowTimeSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
     ESP_LOGD(TAG, "pxShowTimeSemaphore, show time");
-    // Защищаем экран мьютексом от наползания данных датчиков на время | но вотнадо-ли? Но не мешает.
-    // if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)    {
-    ShowTime();
-    //  xSemaphoreGive(xSensorsMutex);
-    //}
+    // Защищаем экран от пересечения с активным экраном вывода погоды
+    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+    {
+      ShowTime(); // Выводим время на экран
+      xSemaphoreGive(xLcdMutex);
+    }
+    else
+    {
+      ESP_LOGW(TAG, "Не удалось вывести время: дисплей занят");
+    }
   }
   ESP_LOGD(TAG, "Crash!");
   vTaskDelete(NULL);
@@ -509,12 +546,15 @@ static void vfnNetworkSendTask(void *vpArg)
     // Если влажность (датчик 8 или 10) > 90% - включаем подогрев
     if (vSensVal[8].value > 90.0 || vSensVal[10].value > 90.0)
     {
+      /*
+            if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+            {
+              heatSens();
+              xSemaphoreGive(xSensorsMutex);
+            }
+     */
 
-      if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(200)) == pdTRUE)
-      {
-        heatSens();
-        xSemaphoreGive(xSensorsMutex);
-      }
+      triggerHeatCycle(); // Неблокирующий запуск- запускаем цикл прогрев-остывания - переключает триггер на "греть"
     }
   }
   vTaskDelete(NULL);
@@ -815,6 +855,7 @@ void setup()
   xSensorsMutex = xSemaphoreCreateMutex();
   // Создаем мьютекс для логов
   xLogMutex = xSemaphoreCreateMutex();
+  xLcdMutex = xSemaphoreCreateMutex(); // Создаем мьютекс экрана
 
   ESP_LOGI(TAG, "====Starting...====");
   logToWeb("====Starting...====");
@@ -874,15 +915,19 @@ void setup()
 
   // Закрываем консоль длгов загрузки - дальше смотреть в web.
   // Если поставить ниже вебсервера - будет конфликт и свалится в перезапуск
-  bBooting = false;
-  // Очищаем экран под графику метеостанции
-  // Если экран и датчики  делят одну шину (например, SPI или I2C),то надо оставить мьютекс активным
-  // if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)   {
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setTextColor(WHITE); // Возвращаем дефолтный цвет
-  // M5.Lcd.setBrightness(0);
-  // xSemaphoreGive(xSensorsMutex);
-  // }
+  // Перед очисткой экрана и переходом к графике защищаем его мьютексом
+  if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(500)) == pdTRUE)
+  {
+    bBooting = false;
+    // Очищаем экран под графику метеостанции
+    // Если экран и датчики  делят одну шину (например, SPI или I2C),то надо оставить мьютекс активным
+    // if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)   {
+    M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.setTextColor(WHITE); // Возвращаем дефолтный цвет
+    // M5.Lcd.setBrightness(0);
+    // xSemaphoreGive(xSensorsMutex);
+    // }
+  }
 
   // http server
   logToWeb("[" + String(TAG) + "]start task HTTP server");
@@ -917,8 +962,8 @@ void setup()
 
   xButtonConfig.pin_bit_mask = GPIO_SEL_37 | GPIO_SEL_38 | GPIO_SEL_39;
   xButtonConfig.mode = GPIO_MODE_INPUT;
-  //xButtonConfig.pull_up_en = GPIO_PULLUP_ENABLE; // пины 34-39 физически не имеют встроенных резисторов подтяжки. Попытка принудительно включить её через драйвер gpio_config на некоторых ревизиях чипов ESP32 вызывает сбой
-   xButtonConfig.pull_up_en = GPIO_PULLUP_DISABLE;
+  // xButtonConfig.pull_up_en = GPIO_PULLUP_ENABLE; // пины 34-39 физически не имеют встроенных резисторов подтяжки. Попытка принудительно включить её через драйвер gpio_config на некоторых ревизиях чипов ESP32 вызывает сбой
+  xButtonConfig.pull_up_en = GPIO_PULLUP_DISABLE;
   xButtonConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
   // xButtonConfig.intr_type = GPIO_INTR_ANYEDGE; // both rising and falling edge
   xButtonConfig.intr_type = GPIO_INTR_NEGEDGE; // on low level | Срабатывание по спаду (нажатие)
@@ -955,7 +1000,7 @@ void setup()
   xSensorConfig.intr_type = GPIO_INTR_POSEDGE; // rising edge |  По фронту (высокий уровень при движении)
   gpio_config(&xSensorConfig);
 
-  // Sensor Pin 
+  // Sensor Pin
   ESP_LOGD(TAG, "cfg hw interrupt for sensor");
   xTaskCreatePinnedToCore(vfnPirTask,        // function with task's code
                           "PIR sensor task", // name
@@ -979,4 +1024,11 @@ void setup()
   vTaskDelay(pdMS_TO_TICKS(100));
 }
 
-void loop() {}
+// void loop() {}
+//  loop() используется как частый неблокирующий диспетчер таймеров нагрева на Ядре 1
+void loop()
+{
+  esp_task_wdt_reset();  // Кормим Watchdog Ядра 1
+  processAsyncHeating(); // Продвигаем тики нагрева каждые 100 мс
+  vTaskDelay(pdMS_TO_TICKS(100));
+}

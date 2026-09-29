@@ -62,7 +62,19 @@ float vHTU_e = 0.0;
 SHT31 sSHT_e(SHT31_ADDRESS);
 boolean bSHT_e = false;
 
-#define HEATTIME 7000 // сколько держать прогрев
+#define HEATTIME 6000  // сколько держать прогрев (6c)
+#define COOLTIME 20000 // 20 секунд на полное остывание кристалла до честной температуры воздуха
+
+// Переменные автомата состояний (прогрева)
+enum HeatState
+{
+        HEAT_IDLE,
+        HEAT_WARMING,
+        HEAT_COOLING
+};
+static HeatState currentHeatState = HEAT_IDLE;
+static unsigned long heatTimer = 0;
+static unsigned long lastHeatTimestamp = 0; // Защита от слишком частого запуска
 
 //*** SCD30  (углекислый газ)
 SCD30 sSCD30_i;
@@ -73,8 +85,8 @@ String GRAD = "\u00B0" + sC;
 
 // ###################
 // переменные коррекции
-float fDS_Tfix = -0.3;   // fix  data from sensor (°C)
-float fBME_e_Tfix = 0.0; // fix  data from sensor (°C)
+float fDS_Tfix = -0.3;    // fix  data from sensor (°C)
+float fBME_e_Tfix = 0.0;  // fix  data from sensor (°C)
 float fHTU_e_Tfix = -0.3; // fix  data from sensor (°C)
 float fSHT_e_Tfix = -0.7; // fix  data from sensor (°C)
 // ####################
@@ -146,6 +158,10 @@ void startSens(stSens *vSensVal) // init sensors
                 // Устанавливаем разрешение датчика в 12 бит (max) (при уменьшении точности скорость получения данных увеличится)
                 sDS.setResolution(sensorAddress, 12);
                 ESP_LOGI(TAG, "Разрешение датчика DS18B20: %d", sDS.getResolution(sensorAddress));
+                
+                sDS.setWaitForConversion(false); // Переводим в неблокирующий режим
+                sDS.requestTemperatures();       // Запускаем первый замер заранее
+
                 vSensVal[0].unit = GRAD;
         }
 
@@ -341,14 +357,26 @@ void getSensData(stSens *vSensVal) // read data from sensors
 
         static const char *TAG = "sensors_values";
 
+        // Если датчики в режиме прогрева или охлаждения — не читаем HTU и SHT
+        bool skipWeather = (currentHeatState != HEAT_IDLE);
+
         if (bDS)
         {
-                sDS.requestTemperatures(); // get data
-                vTaskDelay(pdMS_TO_TICKS(10));
-                vSensVal[0].value = sDS.getTempC(sensorAddress); // read data
-                vTaskDelay(pdMS_TO_TICKS(10));
-                vSensVal[0].value += fDS_Tfix; // fix
-                ESP_LOGD(TAG, "DS  Temp=%f", vSensVal[0].value);
+                /*      sDS.requestTemperatures(); // get data
+                      //после команды requestTemperatures() чипу нужно время на аналого-цифровое преобразование (при 12-битном разрешении — до 750 мс)
+                      //vTaskDelay(pdMS_TO_TICKS(10));
+                      vSensVal[0].value = sDS.getTempC(sensorAddress); // read data. потому считываем данные прошлого замера
+                      //vTaskDelay(pdMS_TO_TICKS(10));
+                      vSensVal[0].value += fDS_Tfix; // fix
+                      ESP_LOGD(TAG, "DS  Temp=%f", vSensVal[0].value);
+                      */
+                // Читаем значение, которое датчик успел подготовить с прошлого раза (мгновенно)
+                vSensVal[0].value = sDS.getTempC(sensorAddress);
+                vSensVal[0].value += fDS_Tfix;
+
+                // Сразу же даем команду на подготовку следующего замера (к минутному шагу он будет готов)
+                // sDS.setWaitForConversion(false); // Включаем асинхронный режим, если не включен
+                sDS.requestTemperatures();
 
                 // контроль корректности данных.
                 if (vSensVal[0].value > -50 and vSensVal[0].value < 50)
@@ -362,7 +390,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
         {
                 if (sRadSens.getData())
                 {
-                        vTaskDelay(pdMS_TO_TICKS(20));
+                        // vTaskDelay(pdMS_TO_TICKS(20));
                         vSensVal[1].value = sRadSens.getRadIntensyDyanmic();
                         // ESP_LOGD(TAG, "Rad Dyanmic: %f mRh", vRadD);
                         vSensVal[2].value = sRadSens.getRadIntensyStatic();
@@ -443,7 +471,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 }
         }
 
-        if (bHTU_e)
+        if (bHTU_e && !skipWeather)
         {
 
                 if (sHTU_e.read())
@@ -471,12 +499,12 @@ void getSensData(stSens *vSensVal) // read data from sensors
                 }
         }
 
-        if (bSHT_e)
+        if (bSHT_e && !skipWeather)
         {
                 if (sSHT_e.read())
                 {
 
-                        vTaskDelay(pdMS_TO_TICKS(20));
+                        //                        vTaskDelay(pdMS_TO_TICKS(20));
                         vSensVal[9].value = sSHT_e.getTemperature(); // read data
                         vSensVal[10].value = sSHT_e.getHumidity();
                         vSensVal[9].value += fSHT_e_Tfix; // fix
@@ -561,6 +589,7 @@ void getSensData(stSens *vSensVal) // read data from sensors
         // *******************************************
 }
 
+/*
 extern void heatSens() // прогрев датчиков для правильной влажности. (Может стоит проверить на температуру-влажность?)
 {
         static const char *TAG = "heat";
@@ -596,6 +625,7 @@ extern void heatSens() // прогрев датчиков для правиль�
         }
         vTaskDelay(pdMS_TO_TICKS(HEATTIME)); // время охлаждения
 }
+ */
 
 void resetActualSensVal(stSens *vSensVal)
 {
@@ -609,4 +639,56 @@ extern void SCD30Calibration() //  Принудительная калибров
 {
         // Говорим датчику: "То, что ты сейчас измеряешь — это ровно 415 ppm"
         sSCD30_i.setForcedRecalibrationFactor(415);
+}
+
+void triggerHeatCycle() // переключает триггер на "греть", запоминает восколько
+{
+        if (currentHeatState != HEAT_IDLE)
+                return;
+        // Защита: разрешаем греть датчик не чаще, чем раз в 15 минут (900 000 мс)
+        if (millis() - lastHeatTimestamp < 900000)
+                return;
+
+        if (bHTU_e)
+        {
+                sHTU_e.heatOn();
+                logToWeb("[HEAT] Нагрев HTU включен.");
+        }
+        if (bSHT_e)
+        {
+                sSHT_e.heatOn();
+                logToWeb("[HEAT] Нагрев SHT31 включен.");
+        }
+
+        heatTimer = millis();
+        lastHeatTimestamp = millis();
+        currentHeatState = HEAT_WARMING;
+}
+
+void processAsyncHeating() // вызывается в loop на проверку времени, если вышло - переключает режим
+{
+        switch (currentHeatState)
+        {
+        case HEAT_IDLE:
+                break;
+        case HEAT_WARMING:
+                if (millis() - heatTimer >= HEATTIME)
+                {
+                        if (bHTU_e)
+                                sHTU_e.heatOff();
+                        if (bSHT_e)
+                                sSHT_e.heatOff();
+                        logToWeb("[HEAT] Нагрев выключен. Стадия охлаждения датчиков...");
+                        heatTimer = millis();
+                        currentHeatState = HEAT_COOLING;
+                }
+                break;
+        case HEAT_COOLING:
+                if (millis() - heatTimer >= COOLTIME)
+                {
+                        currentHeatState = HEAT_IDLE;
+                        logToWeb("[HEAT] Цикл прогрева и охлаждения полностью завершен.");
+                }
+                break;
+        }
 }
