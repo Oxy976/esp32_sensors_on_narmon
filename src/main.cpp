@@ -57,7 +57,7 @@ stSens vSensVal[SensUnit];
 #include <deque> // Удобный стандартный контейнер C++ для очередей weblog
 
 // Настройки веб-журнала (выделяем память здесь, в главном файле)
-const size_t MAX_LOG_LINES = 50;
+const size_t MAX_LOG_LINES = 100;
 std::deque<String> webLogs;
 SemaphoreHandle_t xLogMutex = NULL; // Мьютекс создадим в setup()
 
@@ -178,7 +178,7 @@ void printLocalTime()
     // Если год в системе больше 120 (считается от 1900 года, то есть 1900 + 120 = 2020 год)
     if (t_info.tm_year > 120)
     {
-      strftime(tbuffer, 80, "%d %b %Y %H:%M:%S", &t_info);
+      strftime(tbuffer, sizeof(tbuffer), "%d %b %Y %H:%M:%S", &t_info);
       ESP_LOGI(TAG, "Валидное время: %s", tbuffer);
     }
     else
