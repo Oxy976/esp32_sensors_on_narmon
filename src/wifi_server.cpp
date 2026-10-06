@@ -9,6 +9,21 @@
 #include "sys_time.h"
 #include "sensors.h"
 
+#include <NimBLEDevice.h>
+
+// Структура для плотной упаковки данных датчиков в BLE пакет (макс 20 байт)
+struct BLEPayload
+{
+    float fBleD1;      // 4 байта (Возьмем, например, vSensVal[0].value)
+    float fBleD2;      // 4 байта (Возьмем, например, vSensVal[1].value)
+    float fBleD3;      // 4 байта (Возьмем, например, vSensVal[2].value или давление)
+    float fBleD4;      // 4 байта
+    uint16_t packetId; // 2 байта (Счетчик пакетов для отслеживания обновлений на e-ink)
+} __attribute__((packed));
+
+static uint16_t blePacketCounter = 0;
+// ---
+
 #undef min
 #undef max
 #include <deque>
@@ -206,9 +221,10 @@ void vHttpServerTask(void *pvParameters)
         ESP_LOGE(TAG, "Error setting up MDNS responder!");
         vTaskDelete(NULL); // <--- Безопасное уничтожение упавшей задачи
     }
-    else {
-    ESP_LOGI(TAG, "mDNS responder started");
-    logToWeb("[" + String(TAG) + "] mDNS responder started with name " + String(CONF_HOSTNAME));
+    else
+    {
+        ESP_LOGI(TAG, "mDNS responder started");
+        logToWeb("[" + String(TAG) + "] mDNS responder started with name " + String(CONF_HOSTNAME));
     }
 
     // Инициализация путей...
@@ -221,7 +237,7 @@ void vHttpServerTask(void *pvParameters)
     wserv.on("/update_upload", HTTP_POST, []()
              {
         wserv.sendHeader("Connection", "close");
-        wserv.send(200, "text/html", Update.hasError() ? "<h3>Ошибка обновления! Проверьте файл.</h3><a href='/update'>Назад</a>" : "<h3>Успешно обновлено! ESP32 перезагружается...</h3><script>setTimeout(function(){window.location.href='/';},5000);</script>");
+        wserv.send(200, "text/html;charset=UTF-8", Update.hasError() ? "<h3>Ошибка обновления! Проверьте файл.</h3><a href='/update'>Назад</a>" : "<h3>Успешно обновлено! ESP32 перезагружается...</h3><script>setTimeout(function(){window.location.href='/';},5000);</script>");
         delay(1000);
         ESP.restart(); }, []()
              {
@@ -265,6 +281,9 @@ void vHttpServerTask(void *pvParameters)
     //  Регистрируем ТЕКУЩУЮ таску в системе Watchdog
     esp_task_wdt_add(NULL);
 
+    // for BLE
+    unsigned long lastBleUpdate = 0;
+
     for (;;)
     {
         // "Кормим" ватчдог в начале каждого цикла
@@ -273,6 +292,47 @@ void vHttpServerTask(void *pvParameters)
         if (WiFi.status() == WL_CONNECTED)
         {
             wserv.handleClient();
+        }
+
+        // --- ОБНОВЛЕНИЕ И ОТПРАВКА ДАННЫХ В BLE ЭФИР ---
+        // Обновляем данные в эфире раз в 5 секунд (5000 мс)
+        if (millis() - lastBleUpdate >= 5000)
+        {
+            lastBleUpdate = millis();
+
+            // Безопасно забираем данные из массива под защитой мьютекса
+            if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+            {
+                BLEPayload payload;
+
+                // Наполняем структуру данными (ЗАМЕНИТЕ индексы 0, 1, 2 на ваши реальные индексы датчиков из strct.h!)  ******************!!
+                payload.fBleD1 = vSensVal[0].actual ? vSensVal[0].value : 0.0f;
+                payload.fBleD2 = vSensVal[10].actual ? vSensVal[10].value : 0.0f;
+                payload.fBleD3 = vSensVal[13].actual ? vSensVal[13].value : 0.0f;
+                payload.fBleD4 = vSensVal[2].actual ? vSensVal[2].value : 0.0f;
+                payload.packetId = blePacketCounter++;
+
+                xSemaphoreGive(xSensorsMutex); // Сразу же отдаем мьютекс датчиков
+
+                // Упаковываем структуру в сырую байтовую строку C++
+                std::string strData((char *)&payload, sizeof(payload));
+
+                // Получаем указатель на объект вещания ESP32
+                BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+                if (pAdvertising != NULL)
+                {
+                    BLEAdvertisementData oAdvertisementData;
+                    oAdvertisementData.setName("M5_DATA");           // Имя пакета для фильтрации на NM-EPD-420
+                    oAdvertisementData.setManufacturerData(strData); // Кладем данные в открытый эфир
+
+                    pAdvertising->setAdvertisementData(oAdvertisementData);
+                    if (!pAdvertising->isAdvertising())
+                    {
+                        pAdvertising->start();  // Запускаем/обновляем трансляцию
+                    }
+                   
+                }
+            }
         }
 
         // Спим 5 мс, чтобы дать планировщику FreeRTOS обрабатывать Wi-Fi стек

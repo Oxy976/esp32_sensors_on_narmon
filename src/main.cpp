@@ -6,6 +6,7 @@
  *   - добавить пересчет поправочных коэффициентов относительно доверенного термометра (как вводить данные?)
  * -----
  * сделано:
+ *  + BLE трансляция данных в эфир
  *  + watchdog на сеть - если нет роутера, то переподключиться
  *  - закрыть мьютексами   получение данных, экран
  *   - вынести сервер  http в отдельный файл.
@@ -13,19 +14,21 @@
  *   - если данные с датчиков читаются по таймеру, то надо разделить локальный и таймер для отправки
  *   - добавить поправки для температуры и (может) прочих
  * таски:
- *  - получить данные с датчиков /функцией. возможно потом будет таском, но надо будет прописать мьютекс/
+ *  - vfnSensorUpdateTask Минутный опрос датчиков
+ *  - vfnNetworkSendTask  отправка данных. Раз в 10 минут
+ *  - vHttpServerTask веб-сервер и BLE
+ *  - vWifiWatchdogTask Сетевой сторож
+ *  - vfnButtonTask Диспетчер кнопок
+ *  - vfnPirTask Диспетчер датчика движения
  *  - вывести на экран данные - vfnvShowData
  *  - вывести время - vfnShowTime
- *  - отправить на сервер mqtt /функцией, т.к. вызывается из таска 1 раз/
- *  - обработка кнопок - vfnButtonTask
- *  - обработка датчика движения vfnPirTask
  *прерывания
- *  - нажатия на кнопки - vfnButtonISR
- *  - с датчика движения - vfnPirISR
- *  - по времени для отправки на сервер - onTimerISR
- *
- *семафоры
- *  - прерывание по таймеру - pxTimerSemaphore
+ *  - нажатия на кнопки - vfnButtonISR  на пинах GPIO 37, 38, 39
+ *  - с датчика движения - vfnPirISR  (на пине GPIO 36)
+ *мьютексы
+ *  - xSensorsMutex (Мьютекс защиты данных и шины I2C)
+ *  - xLcdMutex (Мьютекс экрана
+ *  - xLogMutex (Мьютекс веб-журнала)
  *
  * Ядро 1 (Протоколы и датчики): Здесь крутятся ваши кнопки, PIR-датчик и минутный опрос датчиков (vfnSensorUpdateTask).
  * Ядро 0 (Сетевой стек): Здесь живет системный Wi-Fi, веб-сервер и  10-минутная задача отправки (vfnNetworkSendTask).
@@ -47,6 +50,10 @@
 #include "wifi_server.h" // Подключаем созданный модуль сервера http
 #include "strct.h"
 #include "sys_time.h"
+
+//ble
+#include <NimBLEDevice.h>
+
 
 stSens vSensVal[SensUnit];
 
@@ -354,11 +361,11 @@ void vfnvShowData(void *vpArg)
     ESP_LOGD(TAG, "Task show data");
     // --- ЗАЩИТА МЬЮТЕКСОМ ---
     // Защищаем экран специализированным мьютексом
-    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(2000)) == pdTRUE)
+    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(200)) == pdTRUE)
     {
       // Для чтения данных из массива vSensVal все еще нужен датчиковый мьютекс,
       // но берем его на долю секунды БЕЗ блокировки отрисовки
-      if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
+      if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
       {
         // Данные внутри OutToScr теперь будут выводиться под защитой xLcdMutex
         OutToScr(vSensVal);
@@ -387,7 +394,7 @@ void vfnShowTime(void *vpArg)
     xSemaphoreTake(pxShowTimeSemaphore, portMAX_DELAY); // Программа тут свалится в WAIT до тех пор пока не появится семафор
     ESP_LOGD(TAG, "pxShowTimeSemaphore, show time");
     // Защищаем экран от пересечения с активным экраном вывода погоды
-    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(2000)) == pdTRUE)
+    if (xLcdMutex != NULL && xSemaphoreTake(xLcdMutex, pdMS_TO_TICKS(200)) == pdTRUE)
     {
       ShowTime(); // Выводим время на экран
       xSemaphoreGive(xLcdMutex);
@@ -920,14 +927,9 @@ void setup()
   {
     bBooting = false;
     // Очищаем экран под графику метеостанции
-    // Если экран и датчики  делят одну шину (например, SPI или I2C),то надо оставить мьютекс активным
-    // if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(100)) == pdTRUE)   {
-    M5.Lcd.fillScreen(BLACK);
+     M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextColor(WHITE); // Возвращаем дефолтный цвет
-                                // M5.Lcd.setBrightness(0);
-                                // xSemaphoreGive(xSensorsMutex);
-                                // }
-    xSemaphoreGive(xLcdMutex);
+     xSemaphoreGive(xLcdMutex);
   }
 
   // http server
@@ -1022,6 +1024,11 @@ void setup()
   // Запускаем таски вывода времени и погодных данных
   xSemaphoreGive(pxShowTimeSemaphore);
 
+    // Инициализация BLE вещания для NM-EPD-420 (Имя устройства в эфире)
+  BLEDevice::init("M5Stack_Hub");
+  logToWeb("[" + String(TAG) + "] BLE Advertising initialized successfully.");
+
+
   vTaskDelay(pdMS_TO_TICKS(100));
 }
 
@@ -1031,8 +1038,5 @@ void loop()
 {
   esp_task_wdt_reset();  // Кормим Watchdog Ядра 1
   processAsyncHeating(); // Продвигаем тики нагрева каждые 100 мс
-
-  processLcdAnimate(); // Плавное затухание теперь работает тут! - проверяем, не пора ли снизить яркость экрана на один шаг
-
   vTaskDelay(pdMS_TO_TICKS(100));
 }
