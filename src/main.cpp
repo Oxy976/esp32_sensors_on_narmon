@@ -1025,7 +1025,7 @@ void setup()
   xSemaphoreGive(pxShowTimeSemaphore);
 
     // Инициализация BLE вещания для NM-EPD-420 (Имя устройства в эфире)
-  BLEDevice::init("M5Stack_Hub");
+  BLEDevice::init("M5_DATA");
   logToWeb("[" + String(TAG) + "] BLE Advertising initialized successfully.");
 
 

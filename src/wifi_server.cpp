@@ -296,42 +296,57 @@ void vHttpServerTask(void *pvParameters)
 
         // --- ОБНОВЛЕНИЕ И ОТПРАВКА ДАННЫХ В BLE ЭФИР ---
         // Обновляем данные в эфире раз в 5 секунд (5000 мс)
+        // --- ОБНОВЛЕНИЕ И ОТПРАВКА ДАННЫХ В BLE ЭФИР ---
         if (millis() - lastBleUpdate >= 5000)
         {
             lastBleUpdate = millis();
 
-            // Безопасно забираем данные из массива под защитой мьютекса
             if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
             {
                 BLEPayload payload;
 
-                // Наполняем структуру данными (ЗАМЕНИТЕ индексы 0, 1, 2 на ваши реальные индексы датчиков из strct.h!)  ******************!!
+                // Наполняем структуру данными с датчиков
                 payload.fBleD1 = vSensVal[0].actual ? vSensVal[0].value : 0.0f;
                 payload.fBleD2 = vSensVal[10].actual ? vSensVal[10].value : 0.0f;
                 payload.fBleD3 = vSensVal[13].actual ? vSensVal[13].value : 0.0f;
                 payload.fBleD4 = vSensVal[2].actual ? vSensVal[2].value : 0.0f;
                 payload.packetId = blePacketCounter++;
 
-                xSemaphoreGive(xSensorsMutex); // Сразу же отдаем мьютекс датчиков
+                xSemaphoreGive(xSensorsMutex); 
 
-                // Упаковываем структуру в сырую байтовую строку C++
+                // Упаковываем структуру в сырую байтовую строку
                 std::string strData((char *)&payload, sizeof(payload));
 
-                // Получаем указатель на объект вещания ESP32
                 BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
                 if (pAdvertising != NULL)
                 {
+                    // ПАКЕТ А (Основной): Передает исключительно метеоданные (22 байта)
                     BLEAdvertisementData oAdvertisementData;
-                    oAdvertisementData.setName("M5_DATA");           // Имя пакета для фильтрации на NM-EPD-420
-                    oAdvertisementData.setManufacturerData(strData); // Кладем данные в открытый эфир
-
+                    oAdvertisementData.setManufacturerData(strData); 
                     pAdvertising->setAdvertisementData(oAdvertisementData);
+
+                    // ПАКЕТ Б (Scan Response): Сюда выносим имя "M5_DATA"
+                    // Оно гарантированно будет считано e-ink станцией через NimBLE
+                    BLEAdvertisementData oScanResponseData;
+                    oScanResponseData.setName("M5_DATA");
+                    pAdvertising->setScanResponseData(oScanResponseData);
+
+                    // Если трансляция по какой-то причине остановилась — перезапускаем
                     if (!pAdvertising->isAdvertising())
                     {
-                        pAdvertising->start();  // Запускаем/обновляем трансляцию
+                        pAdvertising->start();  
+                        logToWeb("[BLE] Трансляция пакета M5_DATA запущена.");
                     }
-                   
+                    else
+                    {
+                        // Обновляем данные в эфире без перезапуска радиомодуля
+                        pAdvertising->start();
+                    }
                 }
+            }
+            else
+            {
+                logToWeb("[BLE] Ошибка: Датчики заняты мьютексом, пропуск отправки BLE");
             }
         }
 
