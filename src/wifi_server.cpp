@@ -8,21 +8,7 @@
 #include <ESPmDNS.h>
 #include "sys_time.h"
 #include "sensors.h"
-
 #include <NimBLEDevice.h>
-
-// Структура для плотной упаковки данных датчиков в BLE пакет (макс 20 байт)
-struct BLEPayload
-{
-    float fBleD1;      // 4 байта (Возьмем, например, vSensVal[0].value)
-    float fBleD2;      // 4 байта (Возьмем, например, vSensVal[1].value)
-    float fBleD3;      // 4 байта (Возьмем, например, vSensVal[2].value или давление)
-    float fBleD4;      // 4 байта
-    uint16_t packetId; // 2 байта (Счетчик пакетов для отслеживания обновлений на e-ink)
-} __attribute__((packed));
-
-static uint16_t blePacketCounter = 0;
-// ---
 
 #undef min
 #undef max
@@ -40,7 +26,7 @@ extern SemaphoreHandle_t xSensorsMutex;
 // Создаем объект сервера внутри этого файла
 WebServer wserv(80);
 
-// Хэндл таски, эта переменная берётся из main.cpp
+// Хэндл таской, эта переменная берётся из main.cpp
 extern TaskHandle_t httpTaskHandle;
 
 // Обработчик веб-сервера с защитой вызова калибровки мьютексом
@@ -232,6 +218,37 @@ void vHttpServerTask(void *pvParameters)
     wserv.on("/logs", handleLogs);
     wserv.on("/calib_scd30", handleSCD30CalibRequest);
     wserv.on("/update", HTTP_GET, handleUpdateForm);
+    wserv.on("/json", []()
+             {
+        String json;
+        json.reserve(4096); // Выделяем память с запасом под весь массив датчиков
+
+        if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+        {
+            json = "["; // Открываем JSON-массив
+            for (int i = 0; i < SensUnit; i++)
+            {
+                json += "{";
+                json += "\"id\":"     + String(i) + ",";
+                json += "\"name\":\"" + vSensVal[i].name + "\",";
+                json += "\"val\":"    + String(vSensVal[i].value, 2) + ",";
+                json += "\"unit\":\"" + vSensVal[i].unit + "\",";
+                json += "\"act\":"    + String(vSensVal[i].actual ? "true" : "false");
+                json += "}";
+                
+                if (i < SensUnit - 1) {
+                    json += ","; // Ставим запятую между элементами, кроме последнего
+                }
+            }
+            json += "]"; // Закрываем JSON-массив
+            
+            xSemaphoreGive(xSensorsMutex);
+            wserv.send(200, "application/json", json);
+        }
+        else
+        {
+            wserv.send(503, "text/plain", "I2C Bus Busy");
+        } });
 
     // Переработчик самого процесса закачки бинарника
     wserv.on("/update_upload", HTTP_POST, []()
@@ -281,9 +298,6 @@ void vHttpServerTask(void *pvParameters)
     //  Регистрируем ТЕКУЩУЮ таску в системе Watchdog
     esp_task_wdt_add(NULL);
 
-    // for BLE
-    unsigned long lastBleUpdate = 0;
-
     for (;;)
     {
         // "Кормим" ватчдог в начале каждого цикла
@@ -292,62 +306,6 @@ void vHttpServerTask(void *pvParameters)
         if (WiFi.status() == WL_CONNECTED)
         {
             wserv.handleClient();
-        }
-
-        // --- ОБНОВЛЕНИЕ И ОТПРАВКА ДАННЫХ В BLE ЭФИР ---
-        // Обновляем данные в эфире раз в 5 секунд (5000 мс)
-        // --- ОБНОВЛЕНИЕ И ОТПРАВКА ДАННЫХ В BLE ЭФИР ---
-        if (millis() - lastBleUpdate >= 5000)
-        {
-            lastBleUpdate = millis();
-
-            if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(50)) == pdTRUE)
-            {
-                BLEPayload payload;
-
-                // Наполняем структуру данными с датчиков
-                payload.fBleD1 = vSensVal[0].actual ? vSensVal[0].value : 0.0f;
-                payload.fBleD2 = vSensVal[10].actual ? vSensVal[10].value : 0.0f;
-                payload.fBleD3 = vSensVal[13].actual ? vSensVal[13].value : 0.0f;
-                payload.fBleD4 = vSensVal[2].actual ? vSensVal[2].value : 0.0f;
-                payload.packetId = blePacketCounter++;
-
-                xSemaphoreGive(xSensorsMutex); 
-
-                // Упаковываем структуру в сырую байтовую строку
-                std::string strData((char *)&payload, sizeof(payload));
-
-                BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-                if (pAdvertising != NULL)
-                {
-                    // ПАКЕТ А (Основной): Передает исключительно метеоданные (22 байта)
-                    BLEAdvertisementData oAdvertisementData;
-                    oAdvertisementData.setManufacturerData(strData); 
-                    pAdvertising->setAdvertisementData(oAdvertisementData);
-
-                    // ПАКЕТ Б (Scan Response): Сюда выносим имя "M5_DATA"
-                    // Оно гарантированно будет считано e-ink станцией через NimBLE
-                    BLEAdvertisementData oScanResponseData;
-                    oScanResponseData.setName("M5_DATA");
-                    pAdvertising->setScanResponseData(oScanResponseData);
-
-                    // Если трансляция по какой-то причине остановилась — перезапускаем
-                    if (!pAdvertising->isAdvertising())
-                    {
-                        pAdvertising->start();  
-                        logToWeb("[BLE] Трансляция пакета M5_DATA запущена.");
-                    }
-                    else
-                    {
-                        // Обновляем данные в эфире без перезапуска радиомодуля
-                        pAdvertising->start();
-                    }
-                }
-            }
-            else
-            {
-                logToWeb("[BLE] Ошибка: Датчики заняты мьютексом, пропуск отправки BLE");
-            }
         }
 
         // Спим 5 мс, чтобы дать планировщику FreeRTOS обрабатывать Wi-Fi стек

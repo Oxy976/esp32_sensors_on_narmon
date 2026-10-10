@@ -51,10 +51,6 @@
 #include "strct.h"
 #include "sys_time.h"
 
-//ble
-#include <NimBLEDevice.h>
-
-
 stSens vSensVal[SensUnit];
 
 // --webLogs
@@ -1023,10 +1019,6 @@ void setup()
 
   // Запускаем таски вывода времени и погодных данных
   xSemaphoreGive(pxShowTimeSemaphore);
-
-    // Инициализация BLE вещания для NM-EPD-420 (Имя устройства в эфире)
-  BLEDevice::init("M5_DATA");
-  logToWeb("[" + String(TAG) + "] BLE Advertising initialized successfully.");
 
 
   vTaskDelay(pdMS_TO_TICKS(100));

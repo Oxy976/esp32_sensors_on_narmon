@@ -11,4 +11,5 @@ struct stSens
         String mqttId = "";     //ID для сервера (mqtt, tcp data)
 };
 
+
 #endif
