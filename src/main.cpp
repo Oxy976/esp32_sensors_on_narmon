@@ -214,7 +214,8 @@ bool NarodmonTcpPublish()
   bool hasDataToSend = false;
   for (int i = 0; i < SensUnit; i++)
   {
-    if (vSensVal[i].actual && (vSensVal[i].mqttId.length() > 1))
+    //Указатель const char* считается пустым в случае если указывает на пустую строку, где самый первый символ — это символ конца строки ('\0').
+    if (vSensVal[i].actual && vSensVal[i].mqttId[0] != '\0')
     {
       hasDataToSend = true;
       break;
@@ -235,7 +236,7 @@ bool NarodmonTcpPublish()
   buf = "#" + mac + "\n"; // заголовок
   for (int i = 0; i < SensUnit; i++)
   {
-    if (vSensVal[i].actual & (vSensVal[i].mqttId.length() > 1))
+    if (vSensVal[i].actual && vSensVal[i].mqttId[0] != '\0')
     {
       buf = buf + "#" + vSensVal[i].mqttId + "#" + String(vSensVal[i].value, 2) + "\n"; // #mac1#value1 (#H1#93)
     }

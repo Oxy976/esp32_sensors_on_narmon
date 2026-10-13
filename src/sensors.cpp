@@ -116,6 +116,25 @@ void startSens(stSens *vSensVal) // init sensors
         vSensVal[15].name = "intSCD30_Hum";
         vSensVal[16].name = "intSCD30_CO2";
 
+        // -- Уникальные строковые ID параметров для внешних систем (хранятся во Flash)
+        vSensVal[0].id_name = "temp_ext_ds";
+        vSensVal[1].id_name = "rad_dyn";
+        vSensVal[2].id_name = "rad_stat";
+        vSensVal[3].id_name = "rad_pulses";
+        vSensVal[4].id_name = "temp_ext_bme";
+        vSensVal[5].id_name = "hum_ext_bme";
+        vSensVal[6].id_name = "press_ext_bme";
+        vSensVal[7].id_name = "temp_ext_htu";
+        vSensVal[8].id_name = "hum_ext_htu";
+        vSensVal[9].id_name = "temp_ext_sht";
+        vSensVal[10].id_name = "hum_ext_sht";
+        vSensVal[11].id_name = "temp_int_bme";
+        vSensVal[12].id_name = "hum_int_bme";
+        vSensVal[13].id_name = "press_int_bme";
+        vSensVal[14].id_name = "temp_int_scd30";
+        vSensVal[15].id_name = "hum_int_scd30";
+        vSensVal[16].id_name = "co2_int_scd30";
+
         //-------- ID для публикации на narodmon(Какие заданы - будут отправлены, умолчательные значения "" пропущены)
         vSensVal[0].mqttId = "T0";
         vSensVal[2].mqttId = "R0";
@@ -158,7 +177,7 @@ void startSens(stSens *vSensVal) // init sensors
                 // Устанавливаем разрешение датчика в 12 бит (max) (при уменьшении точности скорость получения данных увеличится)
                 sDS.setResolution(sensorAddress, 12);
                 ESP_LOGI(TAG, "Разрешение датчика DS18B20: %d", sDS.getResolution(sensorAddress));
-                
+
                 sDS.setWaitForConversion(false); // Переводим в неблокирующий режим
                 sDS.requestTemperatures();       // Запускаем первый замер заранее
 

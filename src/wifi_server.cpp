@@ -229,11 +229,13 @@ void vHttpServerTask(void *pvParameters)
             for (int i = 0; i < SensUnit; i++)
             {
                 json += "{";
-                json += "\"id\":"     + String(i) + ",";
-                json += "\"name\":\"" + vSensVal[i].name + "\",";
-                json += "\"val\":"    + String(vSensVal[i].value, 2) + ",";
-                json += "\"unit\":\"" + vSensVal[i].unit + "\",";
-                json += "\"act\":"    + String(vSensVal[i].actual ? "true" : "false");
+                json += "\"id\":"        + String(i) + ",";
+                // Добавляем строковый ID параметра в JSON
+                json += "\"id_name\":\"" + String(vSensVal[i].id_name) + "\","; 
+                json += "\"name\":\""   +  String(vSensVal[i].name) + "\",";
+                json += "\"val\":"      + String(vSensVal[i].value, 2) + ",";
+                json += "\"unit\":\""   + vSensVal[i].unit + "\",";
+                json += "\"act\":"      + String(vSensVal[i].actual ? "true" : "false");
                 json += "}";
                 
                 if (i < SensUnit - 1) {
