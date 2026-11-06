@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 
-#define SensUnit 17 // к-во параметров с датчиков (нумерация с 0)
+#define SensUnit 21 // к-во параметров с датчиков (нумерация с 0)
 
 struct stSens
 {

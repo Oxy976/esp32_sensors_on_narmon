@@ -14,8 +14,12 @@
 #include "radSens1v2.h"
 #include <BME280I2C.h>                      //https://github.com/finitespace/BME280
 #include <SHT2x.h>                          //  https://github.com/RobTillaart/SHT2x  library for the SHT2x, HTU2x and Si70xx
-#include "SHT31.h"                          // + SHT31 https://github.com/RobTillaart/SHT31
+//#include "SHT31.h"                          // + SHT31 https://github.com/RobTillaart/SHT31
 #include "SparkFun_SCD30_Arduino_Library.h" //SCD30 CO2 sensor https://github.com/sparkfun/SparkFun_SCD30_Arduino_Library
+#include <SHT4x.h>        
+#include <SPS30.h>        
+#include <SparkFun_TMP117.h>  
+
 
 // OneWire
 #include <OneWire.h>           // 1-wire lib

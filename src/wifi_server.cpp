@@ -8,7 +8,7 @@
 #include <ESPmDNS.h>
 #include "sys_time.h"
 #include "sensors.h"
-#include <NimBLEDevice.h>
+
 
 #undef min
 #undef max
