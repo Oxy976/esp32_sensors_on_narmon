@@ -2,6 +2,8 @@
 
 extern void logToWeb(String text);
 
+extern SemaphoreHandle_t xSensorsMutex;
+
 // *** Инициализация   датчиков ***
 TMP117 sTMP117;
 boolean bTMP117 = false;
@@ -41,9 +43,9 @@ String GRAD = "\u00B0" + sC;
 
 // Поправочные коэффициенты
 float fTMP_Tfix = 0.0;
-float fDS_Tfix = 0.0;
+float fDS_Tfix = -0.3;
 float fBME_e_Tfix = 1.3;
-float fHTU_e_Tfix = -0.3;
+float fHTU_e_Tfix = 0.0;
 float fSHT_e_Tfix = 0.0;
 
 // Автомат асинхронного прогрева - параметры
@@ -61,10 +63,35 @@ static unsigned long lastHeatTimestamp = 0;
 
 // -------------------------------------------------
 
+// ===== НАЙТИ В САМОМ НАЧАЛЕ startSens() ФАЙЛА sensors.cpp И ЗАМЕНИТЬ =====
 void startSens(stSens *vSensVal)
 {
         static const char *TAG = "sensors_init";
         ESP_LOGD(TAG, "Start init sensors");
+
+        // 1. Аппаратный сброс уличного шлейфа IDC
+        pinMode(21, OUTPUT);
+        pinMode(22, OUTPUT);
+        for (int i = 0; i < 12; i++)
+        {
+                digitalWrite(22, LOW);
+                delayMicroseconds(5);
+                digitalWrite(22, HIGH);
+                delayMicroseconds(5);
+        }
+
+        // 2. ИСПРАВЛЕНО: Перезапуск шины на 100 кГц для совместимости с SPS30
+        Wire.end();
+        vTaskDelay(pdMS_TO_TICKS(10));
+
+        Wire.begin(21, 22, 100000);
+        Wire.setClock(100000); // Возвращаем 100 кГц для лазерного датчика пыли
+
+        // >>> ДОБАВИТЬ СТРОКУ: Увеличиваем аппаратный таймаут шины ESP32 до 50 мс
+        // Это заставит ядро не бросать шину при задержках в длинном IDC шлейфе
+        Wire.setTimeOut(50);
+
+        vTaskDelay(pdMS_TO_TICKS(100));
 
         // ================= СТРУКТУРА МАССИВА (21 параметр) =================
         // [0] TMP117 (Новая позиция 0)
@@ -162,8 +189,8 @@ void startSens(stSens *vSensVal)
 
         // ------------------ ИНИЦИАЛИЗАЦИЯ ------------------
 
-        // 0. TMP117
-        if (!sTMP117.begin())
+        // 0. TMP117 (БЕЗОПАСНО ВОЗВРАЩАЕМ)
+        if (!sTMP117.begin(0x48, Wire)) // Явно инициализируем на стандартном адресе
         {
                 ESP_LOGD(TAG, "--- TMP117 sensor not found");
                 logToWeb("--- TMP117 not found");
@@ -214,22 +241,23 @@ void startSens(stSens *vSensVal)
         }
 
         // 3. Si7021 / HTU21D ext
-        sHTU_e.begin();
-        if (!sHTU_e.isConnected())
+        /*
+        Wire.beginTransmission(0x40);
+        if (Wire.endTransmission() != 0)
         {
-                ESP_LOGD(TAG, "--- HTU21/Si7021 ext sensor not found ");
+                ESP_LOGD(TAG, "--- Si7021 ext sensor not found on 0x40");
                 bHTU_e = false;
         }
         else
         {
-                // Просто пишем в лог то, что он отдал, не ломая датчик сменой разрешений
-                logToWeb("+++ HTU21/Si7021 found on 0x40. Reported FW code: " + String(sHTU_e.getFirmwareVersion()));
+                ESP_LOGI(TAG, "+++ Si7021 successfully detected on 0x40");
+                logToWeb("+++ Si7021 activated");
                 bHTU_e = true;
                 vSensVal[7].unit = GRAD;
                 vSensVal[8].unit = "%";
         }
-        bHTU_e = false; // #### Принудительно отключен т.к. не отдает данные, но адрес занимает
-
+*/
+        bHTU_e = false;   //на замену - не отдает данных на длинной линии. Хотя инициализацию проходит.
 
         // 4. SHT40 (Взамен SHT31)
         if (!sSHT40.begin())
@@ -332,12 +360,15 @@ void getSensData(stSens *vSensVal)
         bool skipWeather = (currentHeatState != HEAT_IDLE);
 
         // [0] Чтение TMP117
-        if (bTMP117 && sTMP117.dataReady())
+        if (bTMP117) // Проверяем строго флаг, sTMP117.readRegister до begin() больше не вызываем!
         {
-                vSensVal[0].value = sTMP117.readTempC() + fTMP_Tfix;
-                if (vSensVal[0].value > -50.0 && vSensVal[0].value < 100.0)
+                if (sTMP117.dataReady())
                 {
-                        vSensVal[0].actual = true;
+                        vSensVal[0].value = sTMP117.readTempC() + fTMP_Tfix;
+                        if (vSensVal[0].value > -50.0 && vSensVal[0].value < 100.0)
+                        {
+                                vSensVal[0].actual = true;
+                        }
                 }
         }
 
@@ -369,34 +400,47 @@ void getSensData(stSens *vSensVal)
                         vSensVal[6].actual = true;
         }
 
-        //- Чтение совместимого HTU21 / Клона ext
+        //- Чтение Si7021/HTU21D через асинхронные флаги библиотеки (Пробиваем длинный шлейф)
         if (bHTU_e && !skipWeather)
         {
-                if (sHTU_e.read())
+                // Очищаем внутренний флаг ошибок библиотеки перед новым циклом
+                sHTU_e.getError();
+
+                // --- 1. АСИНХРОННЫЙ ЗАПРОС ТЕМПЕРАТУРЫ ---
+                // Команда requestTemperature() отправляет стандартный триггер замера без удержания SCL
+                if (sHTU_e.requestTemperature())
                 {
-                        vSensVal[7].value = sHTU_e.getTemperature() + fHTU_e_Tfix;
-                        vSensVal[8].value = sHTU_e.getHumidity();
+                        // Вместо delay даем планировщику FreeRTOS прокрутить другие таски метеостанции,
+                        // пока чип на улице автономно считает градусы внутри себя
+                        vTaskDelay(pdMS_TO_TICKS(40));
 
-                        if (vSensVal[7].value > -50 && vSensVal[7].value < 50)
-                                vSensVal[7].actual = true;
-                        if (vSensVal[8].value > 5 && vSensVal[8].value < 101)
-                                vSensVal[8].actual = true;
-                }
-                else
-                {
-                        uint8_t errCode = sHTU_e.getError();
-
-                        char errBuffer[64];
-                        snprintf(errBuffer, sizeof(errBuffer), " [ERROR] Sensor 0x40 read error code: 0x%02X", errCode);
-                        ESP_LOGW(TAG, "%s", errBuffer);
-                        logToWeb(String(errBuffer)); // ###### УДАЛИТЬ!!! ################
-
-                        // >>> ИСПРАВЛЕНИЕ: Если поймали ошибку записи (0x81) — бьем датчик софт-ресетом
-                        if (errCode == 0x81)
+                        // Родной библиотечный метод reqTempReady() считывает готовность данных.
+                        // Если данные на уличной стороне посчитаны и стабильны:
+                        if (sHTU_e.reqTempReady() && sHTU_e.readTemperature())
                         {
-                                ESP_LOGW(TAG, "Попытка реанимации датчика 0x40 через Soft Reset...");
-                                logToWeb("HTU RESET");
-                                sHTU_e.reset(); // Принудительный сброс автомата состояний чипа
+                                float t = sHTU_e.getTemperature();
+                                if (t > -45.0 && t < 85.0)
+                                {
+                                        vSensVal[7].value = t + fHTU_e_Tfix;
+                                        vSensVal[7].actual = true;
+                                }
+                        }
+                }
+
+                // --- 2. АСИНХРОННЫЙ ЗАПРОС ВЛАЖНОСТИ ---
+                if (sHTU_e.requestHumidity())
+                {
+                        vTaskDelay(pdMS_TO_TICKS(40));
+
+                        // Проверяем готовность данных влажности на уличной стороне
+                        if (sHTU_e.reqHumReady() && sHTU_e.readHumidity())
+                        {
+                                float h = sHTU_e.getHumidity();
+                                if (h > 0.0 && h <= 100.0)
+                                {
+                                        vSensVal[8].value = h;
+                                        vSensVal[8].actual = true;
+                                }
                         }
                 }
         }
@@ -549,5 +593,40 @@ void processAsyncHeating()
                 break;
         default:
                 break;
+        }
+}
+
+// Принудительный запуск очистки вентилятора SPS30
+extern void SPS30StartFanCleaning()
+{
+        static const char *TAG = "Cl_SPS30";
+        if (!bSPS30)
+        {
+                ESP_LOGW(TAG, "Попытка очистки: датчик SPS30 не активирован в системе!");
+                logToWeb("[SPS30] Ошибка: датчик не активен");
+                return;
+        }
+
+        // БЕЗОПАСНОСТЬ: Вызываем команду строго под защитой мьютекса I2C
+        if (xSensorsMutex != NULL && xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(200)) == pdTRUE)
+        {
+                int16_t result = sps30_start_manual_fan_cleaning(); // Команда из оригинального Си-драйвера
+                xSemaphoreGive(xSensorsMutex);
+
+                if (result == 0)
+                {
+                        ESP_LOGI(TAG, "+++ Команда ручной очистки вентилятора SPS30 успешно выполнена");
+                        logToWeb("[SPS30] Запущен цикл очистки вентилятора");
+                }
+                else
+                {
+                        ESP_LOGE(TAG, "--- Ошибка выполнения очистки SPS30. Код: %d", result);
+                        logToWeb("[SPS30] Ошибка запуска очистки: " + String(result));
+                }
+        }
+        else
+        {
+                ESP_LOGW(TAG, "--- Датчик занят, не удалось получить доступ к шине I2C");
+                logToWeb("[SPS30] Шина I2C занята");
         }
 }

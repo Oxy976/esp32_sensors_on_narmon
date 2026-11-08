@@ -36,4 +36,6 @@ extern void SCD30Calibration();
 void triggerHeatCycle();
 void processAsyncHeating();
 
+void SPS30StartFanCleaning();
+
 #endif

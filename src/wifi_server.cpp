@@ -9,7 +9,6 @@
 #include "sys_time.h"
 #include "sensors.h"
 
-
 #undef min
 #undef max
 #include <deque>
@@ -78,10 +77,12 @@ void handleRoot()
     html += ".btn-calib { background-color: #b3392b; }</style>";
 
     // JavaScript скрипт асинхронной отправки
+    /*
     html += "<script>function runSCD30Calib() {";
     html += "if (confirm('Вы уверены, что хотите запустить калибровку SCD30 на 415 ppm?')) {";
     html += "fetch('/calib_scd30').then(r => r.ok ? alert('Команда отправлена!') : alert('Ошибка шины.'));";
     html += "}}</script></head><body>";
+    */
 
     html += "<h1>ESP32 Метеостанция</h1>";
     html += "<p>Время: " + current_time + " | Uptime: " + uptimeStr + "</p>";
@@ -106,10 +107,15 @@ void handleRoot()
     html += "</table>";
 
     // Блок кнопок
+    /*
     html += "<div style=\"text-align: center;\">";
     html += "<a href=\"/logs\" class=\"btn\">Системный лог</a>";
     html += "<a href=\"/update\" class=\"btn\" style=\"background-color:#6c757d;\">Обновление ПО</a>";
     html += "<button onclick=\"runSCD30Calib()\" class=\"btn btn-calib\">FRC_SCD30</button></div></body></html>";
+*/
+    html += "<div style=\"text-align: center;\">";
+    html += "<a href=\"/logs\" class=\"btn\">Системный лог</a>";
+    html += "<a href=\"/control\" class=\"btn\" style=\"background-color:#2c3e50;\">Управление устройством →</a></div></body></html>";
 
     wserv.send(200, "text/html", html);
 }
@@ -185,6 +191,72 @@ void handleNotFound()
     wserv.send(404, "text/plain", "404 Not Found");
 }
 
+
+// Обработчик команды удаленного перезапуска ESP32
+void handleRestartRequest()
+{
+    static const char *TAG = "Web_Sys";
+    logToWeb("[" + String(TAG) + "] Получена команда на перезагрузку ESP32 через Веб-интерфейс!");
+
+    wserv.send(200, "text/plain", "OK");
+    vTaskDelay(pdMS_TO_TICKS(500)); // Даем полсекунды, чтобы HTTP-пакет гарантированно ушел в сеть
+    ESP.restart();                  // Жесткий ребут контроллера
+}
+
+// Обработчик запроса на продув вентилятора SPS30
+void handleSPS30CleanRequest()
+{
+    static const char *TAG = "Web_SPS30";
+    logToWeb("[" + String(TAG) + "] Получен HTTP-запрос на продув SPS30...");
+    SPS30StartFanCleaning();
+    wserv.send(200, "text/plain", "OK");
+}
+
+// Новая страница: Управление устройством
+void handleControlPage()
+{
+    String current_time = getSystemTimeStr();
+    String uptimeStr = getUptimeStr();
+
+    String html;
+    html.reserve(3072);
+
+    html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\">";
+    html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+    html += "<style>body { text-align: center; font-family: \"Trebuchet MS\", Arial; background-color: #f4f6f9; margin: 8px; padding: 0; font-size: 14px; }";
+    html += ".box { background: #fff; padding: 20px; border-radius: 8px; display: inline-block; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-top: 20px; max-width: 400px; width: 90%; }";
+    html += "h1 { font-size: 18px; margin: 8px 0; color: #333; }";
+    html += "p { font-size: 12px; color: #666; margin-bottom: 20px; }";
+    html += ".btn { display: block; box-sizing: border-box; width: 90%; padding: 10px 0; margin: 12px auto; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 13px; border: none; cursor: pointer; text-align: center; outline: none; -webkit-appearance: none; }";
+    html += ".btn-blue { background-color: #0043af; } .btn-gray { background-color: #6c757d; } .btn-orange { background-color: #e67e22; } .btn-red { background-color: #b3392b; }</style>";
+
+ 
+    html += "<script>";
+    html += "function runSCD30Calib() { if (confirm('Вы уверены, что хотите запустить калибровку SCD30 на 415 ppm?')) { fetch('/calib_scd30').then(r => r.ok ? alert('Команда отправлена!') : alert('Ошибка шины.')); } }";
+    html += "function runSPS30Clean() { if (confirm('Запустить цикл принудительного продува датчика SPS30? Вентилятор разгонится на максимум.')) { fetch('/clean_sps30').then(r => r.ok ? alert('Продув лазера запущен!') : alert('Ошибка отправки.')); } }";
+    html += "function runRestart() { if (confirm('Вы уверены, что хотите ПЕРЕЗАГРУЗИТЬ метеостанцию?')) { fetch('/sys_restart').then(r => r.ok ? alert('Метеостанция ушла в перезагрузку!') : alert('Ошибка отправки.')); } }";
+    html += "</script></head><body>";
+
+ 
+    html += "<div class='box'><h1>Управление устройством</h1>";
+    html += "<p>Время: " + current_time + "<br>Uptime: " + uptimeStr + "</p>";
+    
+    // Все элементы теперь будут строго одной ширины (90% от контейнера) и одинаковой высоты
+    html += "<a href=\"/update\" class=\"btn btn-gray\">Обновление ПО (OTA)</a>";
+    html += "<button onclick=\"runRestart()\" class=\"btn\" style=\"background-color:#7f8c8d;\">Перезагрузка ESP32</button>";
+    html += "</br>";
+    html += "<button onclick=\"runSPS30Clean()\" class=\"btn btn-orange\">Запустить продув SPS30</button>";
+    html += "<button onclick=\"runSCD30Calib()\" class=\"btn btn-red\">Калибровка SCD30 (415 ppm)</button>";
+    
+    html += "<hr style='border:0; border-top:1px solid #eee; margin:20px 0;'>";
+    html += "<a href=\"/\" class=\"btn btn-blue\">← На главную</a>";
+    html += "</div></body></html>";
+
+
+    wserv.send(200, "text/html", html);
+}
+
+
 // Фоновая задача сервера
 void vHttpServerTask(void *pvParameters)
 {
@@ -216,8 +288,12 @@ void vHttpServerTask(void *pvParameters)
     // Инициализация путей...
     wserv.on("/", handleRoot);
     wserv.on("/logs", handleLogs);
+    wserv.on("/control", handleControlPage);           // <--- ДОБАВИТЬ: Меню управления
+    wserv.on("/sys_restart", handleRestartRequest);    // <--- ДОБАВИТЬ: Команда перезагрузки
+    wserv.on("/clean_sps30", handleSPS30CleanRequest); // <--- ДОБАВИТЬ: Команда продува
     wserv.on("/calib_scd30", handleSCD30CalibRequest);
     wserv.on("/update", HTTP_GET, handleUpdateForm);
+
     wserv.on("/json", []()
              {
         String json;

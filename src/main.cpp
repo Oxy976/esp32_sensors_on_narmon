@@ -160,6 +160,24 @@ void logToWeb(String text)
   Serial.println(timeStr + text);
 }
 
+void clearI2CBus()
+{
+  pinMode(21, OUTPUT); // SDA
+  pinMode(22, OUTPUT); // SCL
+
+  // Генерируем 9 тактов на линии SCL.
+  // Это заставит любой зависший на уличной линии датчик отпустить линию SDA
+  for (int i = 0; i < 9; i++)
+  {
+    digitalWrite(22, LOW);
+    delayMicroseconds(5);
+    digitalWrite(22, HIGH);
+    delayMicroseconds(5);
+  }
+  // Возвращаем пины под управление аппаратного I2C-драйвера
+  Wire.begin(21, 22, 100000);
+}
+
 void showSensVal() //  for TEST!
 {
   for (int i = 0; i < SensUnit; i++)
@@ -214,7 +232,7 @@ bool NarodmonTcpPublish()
   bool hasDataToSend = false;
   for (int i = 0; i < SensUnit; i++)
   {
-    //Указатель const char* считается пустым в случае если указывает на пустую строку, где самый первый символ — это символ конца строки ('\0').
+    // Указатель const char* считается пустым в случае если указывает на пустую строку, где самый первый символ — это символ конца строки ('\0').
     if (vSensVal[i].actual && vSensVal[i].mqttId[0] != '\0')
     {
       hasDataToSend = true;
@@ -866,9 +884,18 @@ void setup()
 
   startTime = millis();
 
+  // clean i2c
+  /*
+   clearI2CBus();
+   ESP_LOGI(TAG, "cleaning I2C");
+   logToWeb("[" + String(TAG) + "]cleaning I2C");
+    vTaskDelay(pdMS_TO_TICKS(10));
+ */
+
   // start sensors init
   ESP_LOGI(TAG, "start sensors init");
   logToWeb("[" + String(TAG) + "]start sensors init");
+
   startSens(vSensVal);
   // показать что подключили -
   getSensData(vSensVal);
@@ -924,9 +951,9 @@ void setup()
   {
     bBooting = false;
     // Очищаем экран под графику метеостанции
-     M5.Lcd.fillScreen(BLACK);
+    M5.Lcd.fillScreen(BLACK);
     M5.Lcd.setTextColor(WHITE); // Возвращаем дефолтный цвет
-     xSemaphoreGive(xLcdMutex);
+    xSemaphoreGive(xLcdMutex);
   }
 
   // http server
@@ -1020,7 +1047,6 @@ void setup()
 
   // Запускаем таски вывода времени и погодных данных
   xSemaphoreGive(pxShowTimeSemaphore);
-
 
   vTaskDelay(pdMS_TO_TICKS(100));
 }
