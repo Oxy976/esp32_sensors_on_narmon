@@ -497,13 +497,13 @@ static void vfnSensorUpdateTask(void *vpArg)
   static const char *TAG = "sensor_task";
   // xLastWakeTime больше НЕ НУЖНА
 
-  ESP_LOGI(TAG, "start vfnSensorUpdateTask *****TEST*** 4Del!");
+  //ESP_LOGI(TAG, "start vfnSensorUpdateTask *****TEST*** 4Del!");
 
   while (1)
   {
     esp_task_wdt_reset(); // Кормим ватчдог ядра
-    ESP_LOGD(TAG, " reading data from sensors");
-    logToWeb("[" + String(TAG) + "]  reading data from sensors");
+    ESP_LOGI(TAG, " reading data from sensors");
+    //logToWeb("[" + String(TAG) + "]  reading data from sensors");
 
     // Защищаем массив мьютексом на время записи данных с физических шин
     if (xSemaphoreTake(xSensorsMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
@@ -529,7 +529,7 @@ static void vfnNetworkSendTask(void *vpArg)
 
   // TickType_t xLastWakeTime = xTaskGetTickCount();
   // const TickType_t xSendToNetTicks = pdMS_TO_TICKS(TIMER_PERIOD_SEND);
-  ESP_LOGI(TAG, "start vfnNetworkSendTask *****TEST*** 4Del!");
+  //ESP_LOGI(TAG, "start vfnNetworkSendTask *****TEST*** 4Del!");
 
   while (1)
   {
@@ -768,13 +768,13 @@ void setup_wifi()
   while (WiFi.status() != WL_CONNECTED)
   {
     vTaskDelay(pdMS_TO_TICKS(500)); // delay(500);
-    logToWeb("[" + String(TAG) + "] trying to connect ");
+    //logToWeb("[" + String(TAG) + "] trying to connect ");
     // Serial.print("#");
     // Serial.println();
     if (++wifiCounter > 5) //  роутеры часто выдают IP дольше 2 секунд потому рекомендовано >20, но на старте столько тормозить не стоит
     {
       // ESP.restart();
-      ESP_LOGI(TAG, "--- WiFi not connected on boot! ");
+      ESP_LOGD(TAG, "--- WiFi not connected on boot! ");
       logToWeb("[" + String(TAG) + "] --- not connected on boot! **");
       bConnWiFi = false;
       WiFi.disconnect();

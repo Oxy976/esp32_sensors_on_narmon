@@ -43,7 +43,7 @@ String GRAD = "\u00B0" + sC;
 
 // Поправочные коэффициенты
 float fTMP_Tfix = 0.0;
-float fDS_Tfix = -0.3;
+float fDS_Tfix = -0.5;
 float fBME_e_Tfix = 1.3;
 float fHTU_e_Tfix = 0.0;
 float fSHT_e_Tfix = 0.0;
@@ -96,8 +96,8 @@ void startSens(stSens *vSensVal)
         // ================= СТРУКТУРА МАССИВА (21 параметр) =================
         // [0] TMP117 (Новая позиция 0)
         vSensVal[0].name = "extTMP_Temp";
-        vSensVal[0].id_name = "temp_ext_tmp";
-        vSensVal[0].mqttId = "";
+        vSensVal[0].id_name = "temp_ext_t117";
+        vSensVal[0].mqttId = "T3";
 
         // [1] - [3] Гейгер
         vSensVal[1].name = "Rad_dyn";
@@ -134,7 +134,7 @@ void startSens(stSens *vSensVal)
         vSensVal[8].id_name = "hum_ext_htu";
         vSensVal[8].mqttId = "";
 
-        // [9] - [10] SHT40 (Заменил SHT31)
+        // [9] - [10] SHT40 
         vSensVal[9].name = "extSHT_Temp";
         vSensVal[9].id_name = "temp_ext_sht";
         vSensVal[9].mqttId = "T1";
@@ -172,15 +172,15 @@ void startSens(stSens *vSensVal)
         // [17] - [19] SPS30 (Новые датчики пыли)
         vSensVal[17].name = "SPS_PM1_0";
         vSensVal[17].id_name = "sps_pm1_0";
-        vSensVal[17].mqttId = "";
+        vSensVal[17].mqttId = "P1M0";
 
         vSensVal[18].name = "SPS_PM2_5";
         vSensVal[18].id_name = "sps_pm2_5";
-        vSensVal[18].mqttId = "";
+        vSensVal[18].mqttId = "P2M5";
 
         vSensVal[19].name = "SPS_PM10";
         vSensVal[19].id_name = "sps_pm10";
-        vSensVal[19].mqttId = "";
+        vSensVal[19].mqttId = "PM10";
 
         // [20] DS18B20 (Перемещен в самый низ)
         vSensVal[20].name = "extDS_Temp";
